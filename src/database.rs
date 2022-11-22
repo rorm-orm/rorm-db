@@ -2,36 +2,128 @@
 This module defines the main API wrapper.
 */
 
+use std::time::Duration;
+
 use futures::stream::BoxStream;
 use futures::StreamExt;
-use log::debug;
+use log::{debug, LevelFilter};
+use rorm_declaration::config::DatabaseDriver;
 use rorm_sql::delete::Delete;
 use rorm_sql::insert::Insert;
+use rorm_sql::join_table::{JoinTableData, JoinTableImpl};
+use rorm_sql::limit_clause::LimitClause;
+use rorm_sql::ordering::OrderByEntry;
 use rorm_sql::select::Select;
+use rorm_sql::select_column::{SelectColumnData, SelectColumnImpl};
 use rorm_sql::update::Update;
 use rorm_sql::{conditional, value, DBImpl};
 use sqlx::any::AnyPoolOptions;
 use sqlx::mysql::MySqlConnectOptions;
 use sqlx::postgres::PgConnectOptions;
 use sqlx::sqlite::SqliteConnectOptions;
+use sqlx::ConnectOptions;
 
 use crate::error::Error;
 use crate::result::QueryStream;
 use crate::row::Row;
 use crate::transaction::Transaction;
-use crate::{utils, DatabaseBackend, DatabaseConfiguration};
+use crate::utils;
+
+/**
+Type alias for [SelectColumnData]..
+
+As all databases use currently the same fields, a type alias is sufficient.
+*/
+pub type ColumnSelector<'a> = SelectColumnData<'a>;
+
+/**
+Type alias for [JoinTableData].
+
+As all databases use currently the same fields, a type alias is sufficient.
+*/
+pub type JoinTable<'until_build, 'post_build> = JoinTableData<'until_build, 'post_build>;
+
+/**
+Configuration to create a database connection.
+
+`min_connections` and `max_connections` must be greater than 0
+and `max_connections` must be greater or equals `min_connections`.
+ */
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub struct DatabaseConfiguration {
+    /// The driver and its corresponding settings
+    pub driver: DatabaseDriver,
+    /// Minimal connections to initialize upfront.
+    pub min_connections: u32,
+    /// Maximum connections that allowed to be created.
+    pub max_connections: u32,
+    /// If set to true, logging will be completely disabled.
+    ///
+    /// In case of None, false will be used.
+    pub disable_logging: Option<bool>,
+    /// Set the log level of SQL statements
+    ///
+    /// In case of None, [LevelFilter::Debug] will be used.
+    pub statement_log_level: Option<LevelFilter>,
+    /// Log level in case of slow statements (>300 ms)
+    ///
+    /// In case of None, [LevelFilter::Warn] will be used.
+    pub slow_statement_log_level: Option<LevelFilter>,
+}
+
+impl DatabaseConfiguration {
+    /**
+    Create a new database configuration with some defaults set.
+
+    **Defaults**:
+    - `min_connections`: 1
+    - `max_connections`: 10
+    - `disable_logging`: None
+    - `statement_log_level`: [Some] of [LevelFilter::Debug]
+    - `slow_statement_log_level`: [Some] of [LevelFilter::Warn]
+
+    **Parameter**:
+    - `driver`: [DatabaseDriver]: Configuration of the database driver.
+    */
+    pub fn new(driver: DatabaseDriver) -> Self {
+        DatabaseConfiguration {
+            driver,
+            min_connections: 1,
+            max_connections: 10,
+            disable_logging: None,
+            statement_log_level: Some(LevelFilter::Debug),
+            slow_statement_log_level: Some(LevelFilter::Warn),
+        }
+    }
+}
 
 /**
 Main API wrapper.
 
 All operations can be started with methods of this struct.
  */
+#[derive(Clone)]
 pub struct Database {
     pool: sqlx::Pool<sqlx::Any>,
     db_impl: DBImpl,
 }
 
+/**
+All statements that take longer to execute than this value are considered
+as slow statements.
+*/
+const SLOW_STATEMENTS: Duration = Duration::from_millis(300);
+
 impl Database {
+    /**
+    Access the used driver at runtime.
+
+    This can be used to generate SQL statements for the chosen dialect.
+    */
+    pub fn get_sql_dialect(&self) -> DBImpl {
+        self.db_impl
+    }
+
     /**
     Connect to the database using `configuration`.
      */
@@ -48,56 +140,116 @@ impl Database {
             )));
         }
 
-        if configuration.name == "" {
-            return Err(Error::ConfigurationError(String::from(
-                "name must not be empty",
-            )));
-        }
+        match &configuration.driver {
+            DatabaseDriver::SQLite { filename, .. } => {
+                if filename.is_empty() {
+                    return Err(Error::ConfigurationError(String::from(
+                        "filename must not be empty",
+                    )));
+                }
+            }
+            DatabaseDriver::Postgres { name, .. } => {
+                if name.is_empty() {
+                    return Err(Error::ConfigurationError(String::from(
+                        "name must not be empty",
+                    )));
+                }
+            }
+            DatabaseDriver::MySQL { name, .. } => {
+                if name.is_empty() {
+                    return Err(Error::ConfigurationError(String::from(
+                        "name must not be empty",
+                    )));
+                }
+            }
+        };
 
         let database;
         let pool_options = AnyPoolOptions::new()
             .min_connections(configuration.min_connections)
             .max_connections(configuration.max_connections);
 
-        let pool;
+        let slow_log_level = configuration
+            .slow_statement_log_level
+            .unwrap_or(LevelFilter::Warn);
+        let log_level = configuration
+            .statement_log_level
+            .unwrap_or(LevelFilter::Debug);
+        let disabled_logging = configuration.disable_logging.unwrap_or(false);
 
-        match configuration.backend {
-            DatabaseBackend::SQLite => {
-                let connect_options = SqliteConnectOptions::new()
+        let pool: sqlx::Pool<sqlx::Any> = match &configuration.driver {
+            DatabaseDriver::SQLite { filename } => {
+                let mut connect_options = SqliteConnectOptions::new()
                     .create_if_missing(true)
-                    .filename(configuration.name);
-                pool = pool_options.connect_with(connect_options.into()).await?;
+                    .filename(filename);
+
+                if disabled_logging {
+                    connect_options.disable_statement_logging();
+                } else {
+                    connect_options.log_statements(log_level);
+                    connect_options.log_slow_statements(slow_log_level, SLOW_STATEMENTS);
+                }
+
+                pool_options.connect_with(connect_options.into()).await?
             }
-            DatabaseBackend::Postgres => {
-                let connect_options = PgConnectOptions::new()
-                    .host(configuration.host.as_str())
-                    .port(configuration.port)
-                    .username(configuration.user.as_str())
-                    .password(configuration.password.as_str())
-                    .database(configuration.name.as_str());
-                pool = pool_options.connect_with(connect_options.into()).await?;
+            DatabaseDriver::Postgres {
+                host,
+                port,
+                name,
+                user,
+                password,
+            } => {
+                let mut connect_options = PgConnectOptions::new()
+                    .host(host.as_str())
+                    .port(*port)
+                    .username(user.as_str())
+                    .password(password.as_str())
+                    .database(name.as_str());
+
+                if disabled_logging {
+                    connect_options.disable_statement_logging();
+                } else {
+                    connect_options.log_statements(log_level);
+                    connect_options.log_slow_statements(slow_log_level, SLOW_STATEMENTS);
+                }
+
+                pool_options.connect_with(connect_options.into()).await?
             }
-            DatabaseBackend::MySQL => {
-                let connect_options = MySqlConnectOptions::new()
-                    .host(configuration.host.as_str())
-                    .port(configuration.port)
-                    .username(configuration.user.as_str())
-                    .password(configuration.password.as_str())
-                    .database(configuration.name.as_str());
-                pool = pool_options.connect_with(connect_options.into()).await?;
+            DatabaseDriver::MySQL {
+                name,
+                host,
+                port,
+                user,
+                password,
+            } => {
+                let mut connect_options = MySqlConnectOptions::new()
+                    .host(host.as_str())
+                    .port(*port)
+                    .username(user.as_str())
+                    .password(password.as_str())
+                    .database(name.as_str());
+
+                if disabled_logging {
+                    connect_options.disable_statement_logging();
+                } else {
+                    connect_options.log_statements(log_level);
+                    connect_options.log_slow_statements(slow_log_level, SLOW_STATEMENTS);
+                }
+
+                pool_options.connect_with(connect_options.into()).await?
             }
-        }
+        };
 
         database = Database {
             pool,
-            db_impl: match configuration.backend {
-                DatabaseBackend::SQLite => DBImpl::SQLite,
-                DatabaseBackend::Postgres => DBImpl::Postgres,
-                DatabaseBackend::MySQL => DBImpl::MySQL,
+            db_impl: match &configuration.driver {
+                DatabaseDriver::SQLite { .. } => DBImpl::SQLite,
+                DatabaseDriver::Postgres { .. } => DBImpl::Postgres,
+                DatabaseDriver::MySQL { .. } => DBImpl::MySQL,
             },
         };
 
-        return Ok(database);
+        Ok(database)
     }
 
     /**
@@ -106,23 +258,48 @@ impl Database {
     **Parameter**:
     - `model`: Name of the table.
     - `columns`: Columns to retrieve values from.
+    - `joins`: Join tables expressions.
     - `conditions`: Optional conditions to apply.
+    - `limit`: Optional limit / offset to apply to the query.
     - `transaction`: Optional transaction to execute the query on.
      */
+    #[allow(clippy::too_many_arguments)]
     pub fn query_stream<'db, 'post_query, 'stream>(
         &'db self,
         model: &str,
-        columns: &[&str],
+        columns: &[ColumnSelector<'_>],
+        joins: &[JoinTable<'_, 'post_query>],
         conditions: Option<&conditional::Condition<'post_query>>,
+        order_by_clause: &[OrderByEntry<'_>],
+        limit: Option<LimitClause>,
         transaction: Option<&'stream mut Transaction>,
     ) -> BoxStream<'stream, Result<Row, Error>>
     where
         'post_query: 'stream,
         'db: 'stream,
     {
-        let mut q = self.db_impl.select(columns, model);
-        if conditions.is_some() {
-            q = q.where_clause(conditions.unwrap());
+        let columns: Vec<SelectColumnImpl> = columns
+            .iter()
+            .map(|c| {
+                self.db_impl
+                    .select_column(c.table_name, c.column_name, c.select_alias)
+            })
+            .collect();
+        let joins: Vec<JoinTableImpl> = joins
+            .iter()
+            .map(|j| {
+                self.db_impl
+                    .join_table(j.join_type, j.table_name, j.join_alias, j.join_condition)
+            })
+            .collect();
+        let mut q = self
+            .db_impl
+            .select(&columns, model, &joins, order_by_clause);
+        if let Some(c) = conditions {
+            q = q.where_clause(c);
+        }
+        if let Some(limit) = limit {
+            q = q.limit_clause(limit);
         }
 
         let (query_string, bind_params) = q.build();
@@ -144,20 +321,43 @@ impl Database {
     **Parameter**:
     - `model`: Model to query.
     - `columns`: Columns to retrieve values from.
+    - `joins`: Join tables expressions.
     - `conditions`: Optional conditions to apply.
+    - `offset`: Optional offset to apply to the query.
     - `transaction`: Optional transaction to execute the query on.
      */
+    #[allow(clippy::too_many_arguments)]
     pub async fn query_one(
         &self,
         model: &str,
-        columns: &[&str],
+        columns: &[ColumnSelector<'_>],
+        joins: &[JoinTable<'_, '_>],
         conditions: Option<&conditional::Condition<'_>>,
+        order_by_clause: &[OrderByEntry<'_>],
+        offset: Option<u64>,
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<Row, Error> {
-        let mut q = self.db_impl.select(columns, model);
+        let columns: Vec<SelectColumnImpl> = columns
+            .iter()
+            .map(|c| {
+                self.db_impl
+                    .select_column(c.table_name, c.column_name, c.select_alias)
+            })
+            .collect();
+        let joins: Vec<JoinTableImpl> = joins
+            .iter()
+            .map(|j| {
+                self.db_impl
+                    .join_table(j.join_type, j.table_name, j.join_alias, j.join_condition)
+            })
+            .collect();
+        let mut q = self
+            .db_impl
+            .select(&columns, model, &joins, order_by_clause);
         if conditions.is_some() {
             q = q.where_clause(conditions.unwrap());
         }
+        q = q.limit_clause(LimitClause { limit: 1, offset });
 
         let (query_string, bind_params) = q.build();
 
@@ -188,20 +388,43 @@ impl Database {
     **Parameter**:
     - `model`: Model to query.
     - `columns`: Columns to retrieve values from.
+    - `joins`: Join tables expressions.
     - `conditions`: Optional conditions to apply.
+    - `offset`: Optional offset to apply to the query.
     - `transaction`: Optional transaction to execute the query on.
      */
+    #[allow(clippy::too_many_arguments)]
     pub async fn query_optional(
         &self,
         model: &str,
-        columns: &[&str],
+        columns: &[ColumnSelector<'_>],
+        joins: &[JoinTable<'_, '_>],
         conditions: Option<&conditional::Condition<'_>>,
+        order_by_clause: &[OrderByEntry<'_>],
+        offset: Option<u64>,
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<Option<Row>, Error> {
-        let mut q = self.db_impl.select(columns, model);
+        let columns: Vec<SelectColumnImpl> = columns
+            .iter()
+            .map(|c| {
+                self.db_impl
+                    .select_column(c.table_name, c.column_name, c.select_alias)
+            })
+            .collect();
+        let joins: Vec<JoinTableImpl> = joins
+            .iter()
+            .map(|j| {
+                self.db_impl
+                    .join_table(j.join_type, j.table_name, j.join_alias, j.join_condition)
+            })
+            .collect();
+        let mut q = self
+            .db_impl
+            .select(&columns, model, &joins, order_by_clause);
         if conditions.is_some() {
             q = q.where_clause(conditions.unwrap());
         }
+        q = q.limit_clause(LimitClause { limit: 1, offset });
 
         let (query_string, bind_params) = q.build();
 
@@ -232,19 +455,45 @@ impl Database {
     **Parameter**:
     - `model`: Model to query.
     - `columns`: Columns to retrieve values from.
+    - `joins`: Join tables expressions.
     - `conditions`: Optional conditions to apply.
+    - `limit`: Optional limit / offset to apply to the query.
     - `transaction`: Optional transaction to execute the query on.
      */
+    #[allow(clippy::too_many_arguments)]
     pub async fn query_all(
         &self,
         model: &str,
-        columns: &[&str],
+        columns: &[ColumnSelector<'_>],
+        joins: &[JoinTable<'_, '_>],
         conditions: Option<&conditional::Condition<'_>>,
+        order_by_clause: &[OrderByEntry<'_>],
+        limit: Option<LimitClause>,
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<Vec<Row>, Error> {
-        let mut q = self.db_impl.select(columns, model);
+        let columns: Vec<SelectColumnImpl> = columns
+            .iter()
+            .map(|c| {
+                self.db_impl
+                    .select_column(c.table_name, c.column_name, c.select_alias)
+            })
+            .collect();
+        let joins: Vec<JoinTableImpl> = joins
+            .iter()
+            .map(|j| {
+                self.db_impl
+                    .join_table(j.join_type, j.table_name, j.join_alias, j.join_condition)
+            })
+            .collect();
+        let mut q = self
+            .db_impl
+            .select(&columns, model, &joins, order_by_clause);
+
         if conditions.is_some() {
             q = q.where_clause(conditions.unwrap());
+        }
+        if let Some(limit) = limit {
+            q = q.limit_clause(limit);
         }
 
         let (query_string, bind_params) = q.build();
@@ -346,7 +595,7 @@ impl Database {
 
                     q.execute(&mut tx).await?;
                 }
-                tx.commit().await.map_err(|e| Error::SqlxError(e))
+                tx.commit().await.map_err(Error::SqlxError)
             }
             Some(transaction) => {
                 for chunk in rows.chunks(25) {
@@ -454,12 +703,12 @@ impl Database {
             None => q
                 .execute(&self.pool)
                 .await
-                .map_err(|err| Error::SqlxError(err))?
+                .map_err(Error::SqlxError)?
                 .rows_affected(),
             Some(transaction) => q
                 .execute(&mut transaction.tx)
                 .await
-                .map_err(|err| Error::SqlxError(err))?
+                .map_err(Error::SqlxError)?
                 .rows_affected(),
         })
     }
@@ -513,11 +762,7 @@ impl Database {
     Entry point for a [Transaction].
     */
     pub async fn start_transaction(&self) -> Result<Transaction, Error> {
-        let tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|err| Error::SqlxError(err))?;
+        let tx = self.pool.begin().await.map_err(Error::SqlxError)?;
 
         Ok(Transaction { tx })
     }
