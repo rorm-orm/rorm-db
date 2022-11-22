@@ -16,7 +16,7 @@ impl Row {
     pub fn get<'r, T, I>(&'r self, index: I) -> Result<T, Error>
     where
         T: Decode<'r, AnyDb> + Type<AnyDb>,
-        I: ColumnIndex<AnyRow>,
+        I: RowIndex,
     {
         <AnyRow as sqlx::Row>::try_get(&self.0, index).map_err(Error::SqlxError)
     }
@@ -31,6 +31,10 @@ impl From<AnyRow> for Row {
 /// Something which can be decoded from a [row](Row)'s cell without borrowing.
 pub trait DecodeOwned: Type<AnyDb> + for<'r> sqlx::Decode<'r, AnyDb> {}
 impl<T: Type<AnyDb> + for<'r> Decode<'r, AnyDb>> DecodeOwned for T {}
+
+/// Something which can be used to index a [row](Row)'s cells.
+pub trait RowIndex: ColumnIndex<AnyRow> {}
+impl<T: ColumnIndex<AnyRow>> RowIndex for T {}
 
 /// Something which can be decoded from a [row](Row).
 ///
