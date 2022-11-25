@@ -281,8 +281,12 @@ impl Database {
         let columns: Vec<SelectColumnImpl> = columns
             .iter()
             .map(|c| {
-                self.db_impl
-                    .select_column(c.table_name, c.column_name, c.select_alias)
+                self.db_impl.select_column(
+                    c.table_name,
+                    c.column_name,
+                    c.select_alias,
+                    c.aggregation,
+                )
             })
             .collect();
         let joins: Vec<JoinTableImpl> = joins
@@ -340,8 +344,12 @@ impl Database {
         let columns: Vec<SelectColumnImpl> = columns
             .iter()
             .map(|c| {
-                self.db_impl
-                    .select_column(c.table_name, c.column_name, c.select_alias)
+                self.db_impl.select_column(
+                    c.table_name,
+                    c.column_name,
+                    c.select_alias,
+                    c.aggregation,
+                )
             })
             .collect();
         let joins: Vec<JoinTableImpl> = joins
@@ -407,8 +415,12 @@ impl Database {
         let columns: Vec<SelectColumnImpl> = columns
             .iter()
             .map(|c| {
-                self.db_impl
-                    .select_column(c.table_name, c.column_name, c.select_alias)
+                self.db_impl.select_column(
+                    c.table_name,
+                    c.column_name,
+                    c.select_alias,
+                    c.aggregation,
+                )
             })
             .collect();
         let joins: Vec<JoinTableImpl> = joins
@@ -474,8 +486,12 @@ impl Database {
         let columns: Vec<SelectColumnImpl> = columns
             .iter()
             .map(|c| {
-                self.db_impl
-                    .select_column(c.table_name, c.column_name, c.select_alias)
+                self.db_impl.select_column(
+                    c.table_name,
+                    c.column_name,
+                    c.select_alias,
+                    c.aggregation,
+                )
             })
             .collect();
         let joins: Vec<JoinTableImpl> = joins
