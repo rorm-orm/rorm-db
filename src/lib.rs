@@ -126,7 +126,7 @@ pub use rorm_declaration::config::DatabaseDriver;
     feature = "actix-rustls"
 ))]
 pub use rorm_sql::{
-    and, conditional, join_table, limit_clause, or, ordering, select_column, value,
+    aggregation, and, conditional, join_table, limit_clause, or, ordering, select_column, value,
 };
 
 #[cfg(any(
