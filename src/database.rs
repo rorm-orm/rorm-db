@@ -544,6 +544,49 @@ impl Database {
     - `values`: Values to bind to the corresponding columns.
     - `transaction`: Optional transaction to execute the query on.
      */
+    pub async fn insert_returning(
+        &self,
+        model: &str,
+        columns: &[&str],
+        values: &[value::Value<'_>],
+        transaction: Option<&mut Transaction<'_>>,
+        returning: &[&str],
+    ) -> Result<Row, Error> {
+        let value_rows = &[values];
+        let q = self
+            .db_impl
+            .insert(model, columns, value_rows, Some(returning));
+
+        let (query_string, bind_params) = q.build();
+
+        debug!("SQL: {}", query_string);
+
+        let mut tmp = sqlx::query(query_string.as_str());
+        for x in bind_params {
+            tmp = utils::bind_param(tmp, x);
+        }
+
+        match transaction {
+            None => match tmp.fetch_one(&self.pool).await {
+                Ok(row) => Ok(Row::from(row)),
+                Err(err) => Err(Error::SqlxError(err)),
+            },
+            Some(transaction) => match tmp.fetch_one(&mut transaction.tx).await {
+                Ok(row) => Ok(Row::from(row)),
+                Err(err) => Err(Error::SqlxError(err)),
+            },
+        }
+    }
+
+    /**
+    This method is used to insert into a table.
+
+    **Parameter**:
+    - `model`: Table to insert to
+    - `columns`: Columns to set `values` for.
+    - `values`: Values to bind to the corresponding columns.
+    - `transaction`: Optional transaction to execute the query on.
+     */
     pub async fn insert(
         &self,
         model: &str,
@@ -552,7 +595,7 @@ impl Database {
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<(), Error> {
         let value_rows = &[values];
-        let q = self.db_impl.insert(model, columns, value_rows);
+        let q = self.db_impl.insert(model, columns, value_rows, None);
 
         let (query_string, bind_params) = q.build();
 
@@ -597,7 +640,7 @@ impl Database {
             None => {
                 let mut tx = self.pool.begin().await?;
                 for chunk in rows.chunks(25) {
-                    let mut insert = self.db_impl.insert(model, columns, chunk);
+                    let mut insert = self.db_impl.insert(model, columns, chunk, None);
                     insert = insert.rollback_transaction();
                     let (insert_query, insert_params) = insert.build();
 
@@ -615,7 +658,7 @@ impl Database {
             }
             Some(transaction) => {
                 for chunk in rows.chunks(25) {
-                    let mut insert = self.db_impl.insert(model, columns, chunk);
+                    let mut insert = self.db_impl.insert(model, columns, chunk, None);
                     insert = insert.rollback_transaction();
                     let (insert_query, insert_params) = insert.build();
 
@@ -630,6 +673,74 @@ impl Database {
                     q.execute(&mut transaction.tx).await?;
                 }
                 Ok(())
+            }
+        }
+    }
+
+    /**
+    This method is used to bulk insert rows.
+
+    If one insert statement fails, the complete operation will be rolled back.
+
+    **Parameter**:
+    - `model`: Table to insert to
+    - `columns`: Columns to set `rows` for.
+    - `rows`: List of values to bind to the corresponding columns.
+    - `transaction`: Optional transaction to execute the query on.
+     */
+    pub async fn insert_bulk_returning_all(
+        &self,
+        model: &str,
+        columns: &[&str],
+        rows: &[&[value::Value<'_>]],
+        transaction: Option<&mut Transaction<'_>>,
+        returning: &[&str],
+    ) -> Result<Vec<Row>, Error> {
+        let mut inserted = Vec::with_capacity(rows.len());
+        match transaction {
+            None => {
+                let mut tx = self.pool.begin().await?;
+                for chunk in rows.chunks(25) {
+                    let mut insert = self.db_impl.insert(model, columns, chunk, Some(returning));
+                    insert = insert.rollback_transaction();
+                    let (insert_query, insert_params) = insert.build();
+
+                    debug!("SQL: {}", insert_query);
+
+                    let mut q = sqlx::query(insert_query.as_str());
+
+                    for x in insert_params {
+                        q = utils::bind_param(q, x);
+                    }
+
+                    let rows = q.fetch_all(&mut tx).await?.into_iter().map(Row::from);
+                    inserted.extend(rows);
+                }
+                tx.commit().await?;
+                Ok(inserted)
+            }
+            Some(transaction) => {
+                for chunk in rows.chunks(25) {
+                    let mut insert = self.db_impl.insert(model, columns, chunk, Some(returning));
+                    insert = insert.rollback_transaction();
+                    let (insert_query, insert_params) = insert.build();
+
+                    debug!("SQL: {}", insert_query);
+
+                    let mut q = sqlx::query(insert_query.as_str());
+
+                    for x in insert_params {
+                        q = utils::bind_param(q, x);
+                    }
+
+                    let rows = q
+                        .fetch_all(&mut transaction.tx)
+                        .await?
+                        .into_iter()
+                        .map(Row::from);
+                    inserted.extend(rows);
+                }
+                Ok(inserted)
             }
         }
     }
