@@ -74,6 +74,9 @@ Errors of rorm-db will be specified here.
     feature = "actix-rustls"
 ))]
 pub mod error;
+#[cfg(feature = "sqlx")]
+pub(crate) mod query_type;
+
 /**
 This module holds the results of a query
  */

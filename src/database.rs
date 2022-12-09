@@ -2,14 +2,9 @@
 This module defines the main API wrapper.
 */
 
-use std::future::Future;
-use std::task::{Context, Poll};
 use std::time::Duration;
 
-use aliasable::string::AliasableString;
-use futures::future::BoxFuture;
 use futures::stream::BoxStream;
-use futures::StreamExt;
 use log::{debug, LevelFilter};
 use rorm_declaration::config::DatabaseDriver;
 use rorm_sql::delete::Delete;
@@ -29,7 +24,7 @@ use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::ConnectOptions;
 
 use crate::error::Error;
-use crate::result::QueryStream;
+use crate::query_type::{All, GetLimitClause, Nothing, One, Optional, QueryType, Stream};
 use crate::row::Row;
 use crate::transaction::Transaction;
 use crate::utils;
@@ -118,188 +113,6 @@ All statements that take longer to execute than this value are considered
 as slow statements.
 */
 const SLOW_STATEMENTS: Duration = Duration::from_millis(300);
-
-type Offset = u64;
-type AnyQuery<'q> = sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments<'q>>;
-type AnyDb = sqlx::Any;
-
-trait QueryType {
-    type LimitArgument;
-    type Future<'result>;
-
-    fn limit_clause(argument: Self::LimitArgument) -> Option<LimitClause>;
-
-    fn query<'post_query, E>(
-        executor: E,
-        query: String,
-        values: Vec<Value<'post_query>>,
-    ) -> Self::Future<'post_query>
-    where
-        E: sqlx::Executor<'post_query, Database = AnyDb>;
-}
-
-trait QueryByFuture {
-    type LimitArgument;
-    type Sqlx;
-    type Rorm;
-
-    fn create_future<'result, 'db: 'result, 'post_query: 'result, E>(
-        executor: E,
-        query: AnyQuery<'post_query>,
-    ) -> BoxFuture<'result, Result<Self::Sqlx, sqlx::Error>>
-    where
-        E: sqlx::Executor<'db, Database = AnyDb>;
-
-    fn convert_result(result: Result<Self::Sqlx, sqlx::Error>) -> Result<Self::Rorm, Error>;
-
-    fn convert_limit(argument: Self::LimitArgument) -> Option<LimitClause>;
-}
-impl<Q: QueryByFuture> QueryType for Q {
-    type LimitArgument = Q::LimitArgument;
-    type Future<'result> = QueryFuture<'result, Q::Sqlx, Q::Rorm>;
-
-    fn limit_clause(argument: Self::LimitArgument) -> Option<LimitClause> {
-        Q::convert_limit(argument)
-    }
-
-    fn query<'post_query, E>(
-        executor: E,
-        query: String,
-        values: Vec<Value<'post_query>>,
-    ) -> Self::Future<'post_query>
-    where
-        E: sqlx::Executor<'post_query, Database = AnyDb>,
-    {
-        let query_string = AliasableString::from_unique(query);
-        let query: &str = &query_string;
-        let mut query = sqlx::query(unsafe { std::mem::transmute(query) });
-        for x in values {
-            query = utils::bind_param(query, x);
-        }
-        QueryFuture {
-            query_string,
-            original: Q::create_future(executor, query),
-            map: Q::convert_result,
-        }
-    }
-}
-// DO NOT modify this struct without careful thought!!!
-struct QueryFuture<'q, Sqlx, Rorm> {
-    #[allow(dead_code)] // it's not "dead", it is aliased before landing in this struct
-    query_string: AliasableString,
-    original: BoxFuture<'q, Result<Sqlx, sqlx::Error>>,
-    map: fn(Result<Sqlx, sqlx::Error>) -> Result<Rorm, Error>,
-}
-impl<'q, Sqlx, Rorm> Future for QueryFuture<'q, Sqlx, Rorm> {
-    type Output = Result<Rorm, Error>;
-
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.original.as_mut().poll(cx) {
-            Poll::Ready(output) => Poll::Ready((self.map)(output)),
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-
-struct One;
-impl QueryByFuture for One {
-    type LimitArgument = Option<Offset>;
-    type Sqlx = sqlx::any::AnyRow;
-    type Rorm = Row;
-
-    fn create_future<'result, 'db: 'result, 'post_query: 'result, E>(
-        executor: E,
-        query: AnyQuery<'post_query>,
-    ) -> BoxFuture<'result, Result<Self::Sqlx, sqlx::Error>>
-    where
-        E: sqlx::Executor<'db, Database = AnyDb>,
-    {
-        executor.fetch_one(query)
-    }
-
-    fn convert_result(result: Result<Self::Sqlx, sqlx::Error>) -> Result<Self::Rorm, Error> {
-        result.map(Row::from).map_err(Error::SqlxError)
-    }
-
-    fn convert_limit(offset: Self::LimitArgument) -> Option<LimitClause> {
-        Some(LimitClause { limit: 1, offset })
-    }
-}
-
-struct Optional;
-impl QueryByFuture for Optional {
-    type LimitArgument = Option<Offset>;
-    type Sqlx = Option<sqlx::any::AnyRow>;
-    type Rorm = Option<Row>;
-
-    fn create_future<'result, 'db: 'result, 'post_query: 'result, E>(
-        executor: E,
-        query: AnyQuery<'post_query>,
-    ) -> BoxFuture<'result, Result<Self::Sqlx, sqlx::Error>>
-    where
-        E: sqlx::Executor<'db, Database = AnyDb>,
-    {
-        executor.fetch_optional(query)
-    }
-
-    fn convert_result(result: Result<Self::Sqlx, sqlx::Error>) -> Result<Self::Rorm, Error> {
-        result
-            .map(|option| option.map(Row::from))
-            .map_err(Error::SqlxError)
-    }
-
-    fn convert_limit(offset: Self::LimitArgument) -> Option<LimitClause> {
-        Some(LimitClause { limit: 1, offset })
-    }
-}
-
-struct All;
-impl QueryByFuture for All {
-    type LimitArgument = Option<LimitClause>;
-    type Sqlx = Vec<sqlx::any::AnyRow>;
-    type Rorm = Vec<Row>;
-
-    fn create_future<'result, 'db: 'result, 'post_query: 'result, E>(
-        executor: E,
-        query: AnyQuery<'post_query>,
-    ) -> BoxFuture<'result, Result<Self::Sqlx, sqlx::Error>>
-    where
-        E: sqlx::Executor<'db, Database = AnyDb>,
-    {
-        executor.fetch_all(query)
-    }
-
-    fn convert_result(result: Result<Self::Sqlx, sqlx::Error>) -> Result<Self::Rorm, Error> {
-        result
-            .map(|vector| vector.into_iter().map(Row::from).collect())
-            .map_err(Error::SqlxError)
-    }
-
-    fn convert_limit(argument: Self::LimitArgument) -> Option<LimitClause> {
-        argument
-    }
-}
-
-struct Stream;
-impl QueryType for Stream {
-    type LimitArgument = Option<LimitClause>;
-    type Future<'result> = BoxStream<'result, Result<Row, Error>>;
-
-    fn limit_clause(argument: Self::LimitArgument) -> Option<LimitClause> {
-        argument
-    }
-
-    fn query<'post_query, E>(
-        executor: E,
-        query: String,
-        values: Vec<Value<'post_query>>,
-    ) -> Self::Future<'post_query>
-    where
-        E: sqlx::Executor<'post_query, Database = AnyDb>,
-    {
-        QueryStream::build(query, values, executor).boxed()
-    }
-}
 
 impl Database {
     /**
@@ -439,16 +252,16 @@ impl Database {
         Ok(database)
     }
 
-    fn query<'result, 'db: 'result, 'post_query: 'result, F: QueryType>(
+    fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryType + GetLimitClause>(
         &'db self,
         model: &str,
         columns: &[ColumnSelector<'_>],
         joins: &[JoinTable<'_, 'post_query>],
         conditions: Option<&conditional::Condition<'post_query>>,
         order_by_clause: &[OrderByEntry<'_>],
-        limit: F::LimitArgument,
+        limit: <Q as GetLimitClause>::Input,
         transaction: Option<&'db mut Transaction<'_>>,
-    ) -> F::Future<'result> {
+    ) -> Q::Future<'result> {
         let columns: Vec<SelectColumnImpl> = columns
             .iter()
             .map(|c| {
@@ -475,7 +288,7 @@ impl Database {
             q = q.where_clause(conditions.unwrap());
         }
 
-        if let Some(limit) = F::limit_clause(limit) {
+        if let Some(limit) = Q::get_limit_clause(limit) {
             q = q.limit_clause(limit);
         }
 
@@ -484,8 +297,8 @@ impl Database {
         debug!("SQL: {}", query_string);
 
         match transaction {
-            None => F::query(&self.pool, query_string, bind_params),
-            Some(transaction) => F::query(&mut transaction.tx, query_string, bind_params),
+            None => Q::query(&self.pool, query_string, bind_params),
+            Some(transaction) => Q::query(&mut transaction.tx, query_string, bind_params),
         }
     }
 
@@ -646,29 +459,28 @@ impl Database {
         transaction: Option<&mut Transaction<'_>>,
         returning: &[&str],
     ) -> Result<Row, Error> {
-        let value_rows = &[values];
-        let q = self
-            .db_impl
-            .insert(model, columns, value_rows, Some(returning));
+        self.generic_insert::<One>(model, columns, values, transaction, Some(returning))
+            .await
+    }
 
-        let (query_string, bind_params) = q.build();
+    fn generic_insert<'result, 'db: 'result, 'post_query: 'result, Q: QueryType>(
+        &'db self,
+        model: &str,
+        columns: &[&str],
+        values: &[value::Value<'post_query>],
+        transaction: Option<&'db mut Transaction<'_>>,
+        returning: Option<&[&str]>,
+    ) -> Q::Future<'result> {
+        let values = &[values];
+        let q = self.db_impl.insert(model, columns, values, returning);
+
+        let (query_string, bind_params): (_, Vec<Value<'post_query>>) = q.build();
 
         debug!("SQL: {}", query_string);
 
-        let mut tmp = sqlx::query(query_string.as_str());
-        for x in bind_params {
-            tmp = utils::bind_param(tmp, x);
-        }
-
         match transaction {
-            None => match tmp.fetch_one(&self.pool).await {
-                Ok(row) => Ok(Row::from(row)),
-                Err(err) => Err(Error::SqlxError(err)),
-            },
-            Some(transaction) => match tmp.fetch_one(&mut transaction.tx).await {
-                Ok(row) => Ok(Row::from(row)),
-                Err(err) => Err(Error::SqlxError(err)),
-            },
+            None => Q::query(&self.pool, query_string, bind_params),
+            Some(transaction) => Q::query(&mut transaction.tx, query_string, bind_params),
         }
     }
 
@@ -688,28 +500,8 @@ impl Database {
         values: &[value::Value<'_>],
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<(), Error> {
-        let value_rows = &[values];
-        let q = self.db_impl.insert(model, columns, value_rows, None);
-
-        let (query_string, bind_params) = q.build();
-
-        debug!("SQL: {}", query_string);
-
-        let mut tmp = sqlx::query(query_string.as_str());
-        for x in bind_params {
-            tmp = utils::bind_param(tmp, x);
-        }
-
-        match transaction {
-            None => match tmp.execute(&self.pool).await {
-                Ok(_) => Ok(()),
-                Err(err) => Err(Error::SqlxError(err)),
-            },
-            Some(transaction) => match tmp.execute(&mut transaction.tx).await {
-                Ok(_) => Ok(()),
-                Err(err) => Err(Error::SqlxError(err)),
-            },
-        }
+        self.generic_insert::<Nothing>(model, columns, values, transaction, None)
+            .await
     }
 
     /**
