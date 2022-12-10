@@ -59,14 +59,6 @@ pub(crate) mod utils;
 pub(crate) mod internal;
 
 pub use rorm_declaration::config::DatabaseDriver;
-#[cfg(any(
-    feature = "async-std-native-tls",
-    feature = "async-std-rustls",
-    feature = "tokio-native-tls",
-    feature = "tokio-rustls",
-    feature = "actix-native-tls",
-    feature = "actix-rustls"
-))]
 pub use rorm_sql::{
     aggregation, and, conditional, join_table, limit_clause, or, ordering, select_column, value,
 };
