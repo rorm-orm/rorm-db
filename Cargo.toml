@@ -1,6 +1,6 @@
 [package]
 name = "rorm-db"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 categories = ["database"]
 keywords = ["async", "orm", "database", "orm"]
@@ -37,6 +37,9 @@ log = { version = "~0.4" }
 
 # Serialization
 serde = { version = "~1.0" }
+
+[package.metadata.docs.rs]
+features = ["tokio-rustls"]
 
 [features]
 default = [
