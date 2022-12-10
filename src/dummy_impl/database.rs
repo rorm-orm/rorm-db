@@ -22,6 +22,7 @@ pub(crate) async fn connect(_configuration: DatabaseConfiguration) -> Result<Dat
 /// - [Database::query_optional]
 /// - [Database::query_all]
 /// - [Database::query_stream]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryType + GetLimitClause>(
     db: &'db Database,
     _model: &str,

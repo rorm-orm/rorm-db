@@ -161,6 +161,7 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
 /// - [Database::query_optional]
 /// - [Database::query_all]
 /// - [Database::query_stream]
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryType + GetLimitClause>(
     db: &'db Database,
     model: &str,
@@ -187,8 +188,8 @@ pub(crate) fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryType + 
         .collect();
     let mut q = db.db_impl.select(&columns, model, &joins, order_by_clause);
 
-    if conditions.is_some() {
-        q = q.where_clause(conditions.unwrap());
+    if let Some(condition) = conditions {
+        q = q.where_clause(condition);
     }
 
     if let Some(limit) = Q::get_limit_clause(limit) {
