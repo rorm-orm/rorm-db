@@ -40,84 +40,23 @@
 ))]
 compile_error!("Using multiple runtime / tls configurations at the same time is not allowed");
 
-#[cfg(not(any(
-    feature = "async-std-native-tls",
-    feature = "async-std-rustls",
-    feature = "tokio-native-tls",
-    feature = "tokio-rustls",
-    feature = "actix-native-tls",
-    feature = "actix-rustls"
-)))]
-compile_error!(
-    r#"One of async-std-native-tls, async-std-rustls, tokio-native-tls, tokio-rustls, 
-    actix-native-tls, actix-rustls is required"#
-);
-
-#[cfg(any(
-    feature = "async-std-native-tls",
-    feature = "async-std-rustls",
-    feature = "tokio-native-tls",
-    feature = "tokio-rustls",
-    feature = "actix-native-tls",
-    feature = "actix-rustls"
-))]
 pub mod database;
-/**
-Errors of rorm-db will be specified here.
- */
-#[cfg(any(
-    feature = "async-std-native-tls",
-    feature = "async-std-rustls",
-    feature = "tokio-native-tls",
-    feature = "tokio-rustls",
-    feature = "actix-native-tls",
-    feature = "actix-rustls"
-))]
 pub mod error;
-#[cfg(feature = "sqlx")]
+
 pub(crate) mod query_type;
 
-/**
-This module holds the results of a query
- */
-#[cfg(any(
-    feature = "async-std-native-tls",
-    feature = "async-std-rustls",
-    feature = "tokio-native-tls",
-    feature = "tokio-rustls",
-    feature = "actix-native-tls",
-    feature = "actix-rustls"
-))]
-pub mod result;
-#[cfg(any(
-    feature = "async-std-native-tls",
-    feature = "async-std-rustls",
-    feature = "tokio-native-tls",
-    feature = "tokio-rustls",
-    feature = "actix-native-tls",
-    feature = "actix-rustls"
-))]
 pub mod row;
-/// This module holds the definition of transactions
-#[cfg(any(
-    feature = "async-std-native-tls",
-    feature = "async-std-rustls",
-    feature = "tokio-native-tls",
-    feature = "tokio-rustls",
-    feature = "actix-native-tls",
-    feature = "actix-rustls"
-))]
 pub mod transaction;
-/// Utility functions
-#[cfg(any(
-    feature = "async-std-native-tls",
-    feature = "async-std-rustls",
-    feature = "tokio-native-tls",
-    feature = "tokio-rustls",
-    feature = "actix-native-tls",
-    feature = "actix-rustls"
-))]
-pub mod utils;
+
+#[cfg(feature = "sqlx")]
+pub(crate) mod result;
+
+#[cfg(feature = "sqlx")]
+pub(crate) mod utils;
+
+#[cfg_attr(feature = "sqlx", path = "sqlx_impl/mod.rs")]
+#[cfg_attr(not(feature = "sqlx"), path = "dummy_impl/mod.rs")]
+pub(crate) mod internal;
 
 pub use rorm_declaration::config::DatabaseDriver;
 #[cfg(any(
@@ -132,14 +71,6 @@ pub use rorm_sql::{
     aggregation, and, conditional, join_table, limit_clause, or, ordering, select_column, value,
 };
 
-#[cfg(any(
-    feature = "async-std-native-tls",
-    feature = "async-std-rustls",
-    feature = "tokio-native-tls",
-    feature = "tokio-rustls",
-    feature = "actix-native-tls",
-    feature = "actix-rustls"
-))]
 pub use crate::{
     database::{Database, DatabaseConfiguration},
     error::Error,

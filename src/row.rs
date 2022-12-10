@@ -1,12 +1,10 @@
 //! This module defines a wrapper for sqlx's AnyRow
-use sqlx::any::AnyRow;
-use sqlx::Any as AnyDb;
-use sqlx::{ColumnIndex, Decode, Type};
 
 use crate::error::Error;
+use crate::internal;
 
 /// Represents a single row from the database.
-pub struct Row(AnyRow);
+pub struct Row(pub(crate) internal::row::Impl);
 
 impl Row {
     /// Index into the database row and decode a single value.
@@ -15,26 +13,48 @@ impl Row {
     /// and a `usize` index can be used to access a column by position.
     pub fn get<'r, T, I>(&'r self, index: I) -> Result<T, Error>
     where
-        T: Decode<'r, AnyDb> + Type<AnyDb>,
+        T: Decode<'r>,
         I: RowIndex,
     {
-        <AnyRow as sqlx::Row>::try_get(&self.0, index).map_err(Error::SqlxError)
+        internal::row::get(self, index)
     }
 }
 
-impl From<AnyRow> for Row {
-    fn from(any_row: AnyRow) -> Self {
-        Row(any_row)
+impl From<internal::row::Impl> for Row {
+    fn from(row: internal::row::Impl) -> Self {
+        Row(row)
     }
 }
 
-/// Something which can be decoded from a [row](Row)'s cell without borrowing.
-pub trait DecodeOwned: Type<AnyDb> + for<'r> sqlx::Decode<'r, AnyDb> {}
-impl<T: Type<AnyDb> + for<'r> Decode<'r, AnyDb>> DecodeOwned for T {}
+/// Something which can be decoded from a [row](Row)'s cell.
+#[cfg(feature = "sqlx")]
+pub trait Decode<'r>: sqlx::Type<sqlx::Any> + sqlx::Decode<'r, sqlx::Any> {}
+/// Something which can be decoded from a [row](Row)'s cell.
+#[cfg(not(feature = "sqlx"))]
+pub trait Decode<'r> {}
 
 /// Something which can be used to index a [row](Row)'s cells.
-pub trait RowIndex: ColumnIndex<AnyRow> {}
-impl<T: ColumnIndex<AnyRow>> RowIndex for T {}
+#[cfg(feature = "sqlx")]
+pub trait RowIndex: sqlx::ColumnIndex<sqlx::any::AnyRow> {}
+/// Something which can be used to index a [row](Row)'s cells.
+#[cfg(not(feature = "sqlx"))]
+pub trait RowIndex {}
+
+/// Something which can be decoded from a [row](Row)'s cell without borrowing.
+pub trait DecodeOwned: for<'r> Decode<'r> {}
+impl<T: for<'r> Decode<'r>> DecodeOwned for T {}
+
+#[cfg(feature = "sqlx")]
+const _: () = {
+    impl<'r, T: sqlx::Type<sqlx::Any> + sqlx::Decode<'r, sqlx::Any>> Decode<'r> for T {}
+    impl<T: sqlx::ColumnIndex<sqlx::any::AnyRow>> RowIndex for T {}
+};
+#[cfg(not(feature = "sqlx"))]
+const _: () = {
+    impl<'r, T> Decode<'r> for T {}
+    impl RowIndex for usize {}
+    impl RowIndex for &str {}
+};
 
 /// Something which can be decoded from a [row](Row).
 ///
@@ -49,7 +69,7 @@ macro_rules! impl_from_row {
         impl<$($generic),+> FromRow for ($($generic,)+)
         where
             $(
-                $generic: Type<AnyDb> + for<'r> Decode<'r, AnyDb>,
+                $generic: DecodeOwned,
             )+
         {
             fn from_row(row: Row) -> Result<Self, Error> {

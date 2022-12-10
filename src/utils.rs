@@ -1,12 +1,12 @@
+//! Utility functions
+
 use rorm_sql::value;
 use sqlx::database::HasArguments;
 use sqlx::query::Query;
 
 type AnyQuery<'q> = Query<'q, sqlx::Any, <sqlx::Any as HasArguments<'q>>::Arguments>;
 
-/**
-This helper method is used to bind ConditionValues to the query.
-*/
+/// This helper method is used to bind ConditionValues to the query.
 pub fn bind_param<'post_query, 'query>(
     query: AnyQuery<'query>,
     param: value::Value<'post_query>,

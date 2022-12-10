@@ -1,6 +1,6 @@
-use sqlx::Any;
+//! This module holds the definition of transactions
 
-use crate::Error;
+use crate::{internal, Error};
 
 /**
 Transactions can be used to provide a safe way to execute multiple SQL operations
@@ -10,21 +10,17 @@ database.
 Can be obtained using [crate::Database::start_transaction].
 */
 pub struct Transaction<'db> {
-    pub(crate) tx: sqlx::Transaction<'db, Any>,
+    pub(crate) tx: internal::transaction::Impl<'db>,
 }
 
 impl<'db> Transaction<'db> {
-    /**
-    This function commits the transaction.
-    */
+    /// This function commits the transaction.
     pub async fn commit(self) -> Result<(), Error> {
-        self.tx.commit().await.map_err(Error::SqlxError)
+        internal::transaction::commit(self).await
     }
 
-    /**
-    Use this function to abort the transaction.
-    */
+    /// Use this function to abort the transaction.
     pub async fn rollback(self) -> Result<(), Error> {
-        self.tx.rollback().await.map_err(Error::SqlxError)
+        internal::transaction::rollback(self).await
     }
 }
