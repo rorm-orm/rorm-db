@@ -21,6 +21,9 @@ rorm-declaration = { version = "~0.3", path = "../rorm-declaration" }
 # Abstractions for asynchronous programming.
 futures = { version = "~0.3" }
 
+# Allow wrapping futures and streams
+pin-project = { version = "~1.0" }
+
 # SQL executor. Optional because it requires a runtime and a TLS implementation.
 # A compile error will be thrown if no runtime is chosen.
 sqlx = { version = "~0.6", optional = true }

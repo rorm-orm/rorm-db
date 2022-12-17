@@ -19,7 +19,8 @@ use sqlx::ConnectOptions;
 
 use crate::database::{ColumnSelector, Database, DatabaseConfiguration, JoinTable};
 use crate::error::Error;
-use crate::query_type::{GetLimitClause, QueryType};
+use crate::executor::QueryStrategy;
+use crate::query_type::GetLimitClause;
 use crate::row::Row;
 use crate::transaction::Transaction;
 use crate::utils;
@@ -162,7 +163,12 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
 /// - [Database::query_all]
 /// - [Database::query_stream]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryType + GetLimitClause>(
+pub(crate) fn query<
+    'result,
+    'db: 'result,
+    'post_query: 'result,
+    Q: QueryStrategy + GetLimitClause,
+>(
     db: &'db Database,
     model: &str,
     columns: &[ColumnSelector<'_>],
@@ -171,7 +177,7 @@ pub(crate) fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryType + 
     order_by_clause: &[OrderByEntry<'_>],
     limit: <Q as GetLimitClause>::Input,
     transaction: Option<&'db mut Transaction<'_>>,
-) -> Q::Future<'result> {
+) -> Q::Result<'result> {
     let columns: Vec<SelectColumnImpl> = columns
         .iter()
         .map(|c| {
@@ -201,22 +207,22 @@ pub(crate) fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryType + 
     debug!("SQL: {}", query_string);
 
     match transaction {
-        None => Q::query(&db.pool, query_string, bind_params),
-        Some(transaction) => Q::query(&mut transaction.tx, query_string, bind_params),
+        None => Q::execute(&db.pool, query_string, bind_params),
+        Some(transaction) => Q::execute(&mut transaction.tx, query_string, bind_params),
     }
 }
 
 /// Generic implementation of:
 /// - [Database::insert]
 /// - [Database::insert_returning]
-pub(crate) fn insert<'result, 'db: 'result, 'post_query: 'result, Q: QueryType>(
+pub(crate) fn insert<'result, 'db: 'result, 'post_query: 'result, Q: QueryStrategy>(
     db: &'db Database,
     model: &str,
     columns: &[&str],
     values: &[Value<'post_query>],
     transaction: Option<&'db mut Transaction<'_>>,
     returning: Option<&[&str]>,
-) -> Q::Future<'result> {
+) -> Q::Result<'result> {
     let values = &[values];
     let q = db.db_impl.insert(model, columns, values, returning);
 
@@ -225,8 +231,8 @@ pub(crate) fn insert<'result, 'db: 'result, 'post_query: 'result, Q: QueryType>(
     debug!("SQL: {}", query_string);
 
     match transaction {
-        None => Q::query(&db.pool, query_string, bind_params),
-        Some(transaction) => Q::query(&mut transaction.tx, query_string, bind_params),
+        None => Q::execute(&db.pool, query_string, bind_params),
+        Some(transaction) => Q::execute(&mut transaction.tx, query_string, bind_params),
     }
 }
 

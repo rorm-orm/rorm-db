@@ -4,7 +4,8 @@ use rorm_sql::value::Value;
 
 use crate::database::{ColumnSelector, Database, DatabaseConfiguration, JoinTable};
 use crate::error::Error;
-use crate::query_type::{GetLimitClause, QueryType};
+use crate::executor::QueryStrategy;
+use crate::query_type::GetLimitClause;
 use crate::row::Row;
 use crate::transaction::Transaction;
 
@@ -23,7 +24,12 @@ pub(crate) async fn connect(_configuration: DatabaseConfiguration) -> Result<Dat
 /// - [Database::query_all]
 /// - [Database::query_stream]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryType + GetLimitClause>(
+pub(crate) fn query<
+    'result,
+    'db: 'result,
+    'post_query: 'result,
+    Q: QueryStrategy + GetLimitClause,
+>(
     db: &'db Database,
     _model: &str,
     _columns: &[ColumnSelector<'_>],
@@ -32,7 +38,7 @@ pub(crate) fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryType + 
     _order_by_clause: &[OrderByEntry<'_>],
     _limit: <Q as GetLimitClause>::Input,
     _transaction: Option<&'db mut Transaction<'_>>,
-) -> Q::Future<'result> {
+) -> Q::Result<'result> {
     // "Read" pool at least once
     let _ = db.pool;
     no_sqlx();
@@ -41,14 +47,14 @@ pub(crate) fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryType + 
 /// Generic implementation of:
 /// - [Database::insert]
 /// - [Database::insert_returning]
-pub(crate) fn insert<'result, 'db: 'result, 'post_query: 'result, Q: QueryType>(
+pub(crate) fn insert<'result, 'db: 'result, 'post_query: 'result, Q: QueryStrategy>(
     _db: &'db Database,
     _model: &str,
     _columns: &[&str],
     _values: &[Value<'post_query>],
     _transaction: Option<&'db mut Transaction<'_>>,
     _returning: Option<&[&str]>,
-) -> Q::Future<'result> {
+) -> Q::Result<'result> {
     no_sqlx();
 }
 

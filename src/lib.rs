@@ -45,11 +45,9 @@ pub mod error;
 
 pub(crate) mod query_type;
 
+pub mod executor;
 pub mod row;
 pub mod transaction;
-
-#[cfg(feature = "sqlx")]
-pub(crate) mod result;
 
 #[cfg(feature = "sqlx")]
 pub(crate) mod utils;

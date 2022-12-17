@@ -3,6 +3,7 @@ This module defines the main API wrapper.
 */
 
 use futures::stream::BoxStream;
+use futures::StreamExt;
 use log::LevelFilter;
 use rorm_declaration::config::DatabaseDriver;
 use rorm_sql::join_table::JoinTableData;
@@ -12,8 +13,8 @@ use rorm_sql::select_column::SelectColumnData;
 use rorm_sql::{conditional, value, DBImpl};
 
 use crate::error::Error;
+use crate::executor::{All, Nothing, One, Optional, Stream};
 use crate::internal;
-use crate::query_type::{All, Nothing, One, Optional, Stream};
 use crate::row::Row;
 use crate::transaction::Transaction;
 
@@ -149,6 +150,7 @@ impl Database {
             limit,
             transaction,
         )
+        .boxed()
     }
 
     /**

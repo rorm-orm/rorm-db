@@ -1,13 +1,6 @@
-//! Abstraction over which concrete method of [Executor] to use
-
 use rorm_sql::limit_clause::LimitClause;
-use rorm_sql::value::Value;
 
-pub(crate) struct Nothing;
-pub(crate) struct One;
-pub(crate) struct Optional;
-pub(crate) struct All;
-pub(crate) struct Stream;
+use crate::executor::{All, One, Optional, Stream};
 
 type Offset = u64;
 
@@ -15,22 +8,6 @@ pub(crate) trait GetLimitClause {
     type Input;
 
     fn get_limit_clause(input: Self::Input) -> Option<LimitClause>;
-}
-
-pub(crate) trait QueryType {
-    type Future<'result>;
-
-    #[cfg(feature = "sqlx")]
-    fn query<'post_query, E>(
-        executor: E,
-        query: String,
-        values: Vec<Value<'post_query>>,
-    ) -> Self::Future<'post_query>
-    where
-        E: sqlx::Executor<'post_query, Database = sqlx::Any>;
-
-    #[cfg(not(feature = "sqlx"))]
-    fn query<E>(executor: E, query: String, values: Vec<Value>) -> Self::Future<'static>;
 }
 
 impl GetLimitClause for Stream {
