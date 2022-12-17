@@ -13,6 +13,12 @@ use crate::internal;
 pub struct Nothing;
 impl QueryStrategy for Nothing {}
 
+/// [QueryStrategy] returning how many rows have been affected by the query
+///
+/// `type Result<'result> = impl Future<Output = Result<u64, Error>>`
+pub struct AffectedRows;
+impl QueryStrategy for AffectedRows {}
+
 /// [QueryStrategy] returning a single row
 ///
 /// `type Result<'result> = impl Future<Output = Result<Row, Error>>`
@@ -45,6 +51,7 @@ impl QueryStrategy for Stream {}
 /// - [One] retrieves a single row
 /// - [Stream] retrieves many rows in a stream
 /// - [All] retrieves many rows in a vector
+/// - [AffectedRows] returns the number of rows affected by the query
 ///
 /// This trait has an associated `Result<'result>` type which is returned by [Executor::execute].
 /// To avoid boxing, these types are quite big.

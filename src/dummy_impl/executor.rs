@@ -5,7 +5,7 @@ use rorm_sql::value::Value;
 
 use crate::database::Database;
 use crate::error::Error;
-use crate::executor::{All, Executor, Nothing, One, Optional, QueryStrategy, Stream};
+use crate::executor::{AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, Stream};
 use crate::row::Row;
 use crate::transaction::Transaction;
 
@@ -46,6 +46,10 @@ pub trait QueryStrategyImpl {
 
 impl QueryStrategyImpl for Nothing {
     type Result<'result> = Ready<Result<(), Error>>;
+}
+
+impl QueryStrategyImpl for AffectedRows {
+    type Result<'result> = Ready<Result<u64, Error>>;
 }
 
 impl QueryStrategyImpl for One {

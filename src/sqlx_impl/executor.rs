@@ -4,10 +4,10 @@ use std::task::{Context, Poll};
 
 use aliasable::string::AliasableString;
 use futures::future::{self, BoxFuture, FutureExt, TryFutureExt};
-use futures::stream::{self, BoxStream, ErrInto, TryCollect, TryFilterMap, TryStreamExt};
+use futures::stream::{self, BoxStream, TryCollect, TryFilterMap, TryStreamExt};
 use rorm_sql::value::Value;
 
-use crate::executor::{All, Executor, Nothing, One, Optional, QueryStrategy, Stream};
+use crate::executor::{AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, Stream};
 use crate::transaction::Transaction;
 use crate::{utils, Database, Error, Row};
 
@@ -147,6 +147,46 @@ impl QueryStrategyImpl for Nothing {
     }
 }
 
+impl QueryStrategyImpl for AffectedRows {
+    type Result<'result> = QueryFuture<
+        future::ErrInto<
+            stream::TryFold<
+                FetchMany<'result>,
+                Ready<Result<u64, sqlx::Error>>,
+                u64,
+                fn(u64, AnyEither) -> Ready<Result<u64, sqlx::Error>>,
+            >,
+            Error,
+        >,
+    >;
+
+    fn execute<'executor, 'data, 'result, E>(
+        executor: E,
+        query: String,
+        values: Vec<Value<'data>>,
+    ) -> Self::Result<'result>
+    where
+        'executor: 'result,
+        'data: 'result,
+        E: sqlx::Executor<'executor, Database = sqlx::Any>,
+    {
+        fn add_rows_affected(sum: u64, either: AnyEither) -> Ready<Result<u64, sqlx::Error>> {
+            std::future::ready(Ok(match either {
+                AnyEither::Left(result) => sum + result.rows_affected(),
+                AnyEither::Right(_) => sum,
+            }))
+        }
+        let add_rows_affected: fn(u64, AnyEither) -> Ready<Result<u64, sqlx::Error>> =
+            add_rows_affected;
+        QueryFuture::new(query, values, |query| {
+            executor
+                .fetch_many::<'result, 'data, AnyQuery<'data>>(query)
+                .try_fold(0, add_rows_affected)
+                .err_into()
+        })
+    }
+}
+
 impl QueryStrategyImpl for One {
     type Result<'result> = QueryFuture<
         future::ErrInto<
@@ -224,7 +264,7 @@ static TRY_FILTER_MAP: fn(AnyEither) -> Ready<Result<Option<Row>, sqlx::Error>> 
 impl QueryStrategyImpl for All {
     type Result<'result> = QueryFuture<
         TryCollect<
-            ErrInto<
+            stream::ErrInto<
                 TryFilterMap<
                     FetchMany<'result>,
                     Ready<Result<Option<Row>, sqlx::Error>>,
@@ -258,7 +298,7 @@ impl QueryStrategyImpl for All {
 
 impl QueryStrategyImpl for Stream {
     type Result<'result> = QueryStream<
-        ErrInto<
+        stream::ErrInto<
             TryFilterMap<
                 FetchMany<'result>,
                 Ready<Result<Option<Row>, sqlx::Error>>,

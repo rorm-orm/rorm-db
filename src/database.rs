@@ -5,17 +5,19 @@ This module defines the main API wrapper.
 use futures::stream::{BoxStream, StreamExt};
 use log::{debug, LevelFilter};
 use rorm_declaration::config::DatabaseDriver;
+use rorm_sql::delete::Delete;
 use rorm_sql::insert::Insert;
 use rorm_sql::join_table::JoinTableData;
 use rorm_sql::limit_clause::LimitClause;
 use rorm_sql::ordering::OrderByEntry;
 use rorm_sql::select::Select;
 use rorm_sql::select_column::SelectColumnData;
+use rorm_sql::update::Update;
 use rorm_sql::value::Value;
 use rorm_sql::{conditional, value, DBImpl};
 
 use crate::error::Error;
-use crate::executor::{All, Executor, Nothing, One, Optional, QueryStrategy, Stream};
+use crate::executor::{AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, Stream};
 use crate::internal;
 use crate::query_type::GetLimitClause;
 use crate::row::Row;
@@ -399,7 +401,35 @@ impl Database {
         rows: &[&[Value<'_>]],
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<(), Error> {
-        internal::database::insert_bulk(self, model, columns, rows, transaction).await
+        return match transaction {
+            None => {
+                let mut transaction = self.start_transaction().await?;
+                with_transaction(self, &mut transaction, model, columns, rows).await?;
+                transaction.commit().await
+            }
+            Some(transaction) => {
+                with_transaction(self, transaction, model, columns, rows).await?;
+                Ok(())
+            }
+        };
+        async fn with_transaction(
+            db: &Database,
+            tx: &mut Transaction<'_>,
+            model: &str,
+            columns: &[&str],
+            rows: &[&[Value<'_>]],
+        ) -> Result<(), Error> {
+            for chunk in rows.chunks(25) {
+                let mut insert = db.db_impl.insert(model, columns, chunk, None);
+                insert = insert.rollback_transaction();
+                let (insert_query, insert_params) = insert.build();
+
+                debug!("SQL: {}", insert_query);
+
+                tx.execute::<Nothing>(insert_query, insert_params).await?;
+            }
+            Ok(())
+        }
     }
 
     /**
@@ -414,22 +444,45 @@ impl Database {
     - `transaction`: Optional transaction to execute the query on.
      */
     pub async fn insert_bulk_returning(
-        &self,
+        self: &Database,
         model: &str,
         columns: &[&str],
         rows: &[&[Value<'_>]],
         transaction: Option<&mut Transaction<'_>>,
         returning: &[&str],
     ) -> Result<Vec<Row>, Error> {
-        internal::database::insert_bulk_returning(
-            self,
-            model,
-            columns,
-            rows,
-            transaction,
-            returning,
-        )
-        .await
+        return match transaction {
+            None => {
+                let mut transaction = self.start_transaction().await?;
+                let result =
+                    with_transaction(self, &mut transaction, model, columns, rows, returning).await;
+                transaction.commit().await?;
+                result
+            }
+            Some(transaction) => {
+                with_transaction(self, transaction, model, columns, rows, returning).await
+            }
+        };
+        async fn with_transaction(
+            db: &Database,
+            tx: &mut Transaction<'_>,
+            model: &str,
+            columns: &[&str],
+            rows: &[&[Value<'_>]],
+            returning: &[&str],
+        ) -> Result<Vec<Row>, Error> {
+            let mut inserted = Vec::with_capacity(rows.len());
+            for chunk in rows.chunks(25) {
+                let mut insert = db.db_impl.insert(model, columns, chunk, Some(returning));
+                insert = insert.rollback_transaction();
+                let (insert_query, insert_params) = insert.build();
+
+                debug!("SQL: {}", insert_query);
+
+                inserted.extend(tx.execute::<All>(insert_query, insert_params).await?);
+            }
+            Ok(inserted)
+        }
     }
 
     /**
@@ -444,12 +497,31 @@ impl Database {
     relations, etc.
      */
     pub async fn delete<'post_build>(
-        &self,
+        self: &Database,
         model: &str,
         condition: Option<&conditional::Condition<'post_build>>,
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<u64, Error> {
-        internal::database::delete(self, model, condition, transaction).await
+        let mut q = self.db_impl.delete(model);
+        if condition.is_some() {
+            q = q.where_clause(condition.unwrap());
+        }
+
+        let (query_string, bind_params) = q.build();
+
+        debug!("SQL: {}", query_string);
+
+        match transaction {
+            None => {
+                self.execute::<AffectedRows>(query_string, bind_params)
+                    .await
+            }
+            Some(transaction) => {
+                transaction
+                    .execute::<AffectedRows>(query_string, bind_params)
+                    .await
+            }
+        }
     }
 
     /**
@@ -466,13 +538,36 @@ impl Database {
     relations, etc.
      */
     pub async fn update<'post_build>(
-        &self,
+        self: &Database,
         model: &str,
-        updates: &[(&str, value::Value<'post_build>)],
+        updates: &[(&str, Value<'post_build>)],
         condition: Option<&conditional::Condition<'post_build>>,
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<u64, Error> {
-        internal::database::update(self, model, updates, condition, transaction).await
+        let mut stmt = self.db_impl.update(model);
+
+        for (column, value) in updates {
+            stmt = stmt.add_update(column, *value);
+        }
+
+        if let Some(cond) = condition {
+            stmt = stmt.where_clause(cond);
+        }
+
+        let (query_string, bind_params) = stmt.build()?;
+        debug!("SQL: {}", query_string);
+
+        match transaction {
+            None => {
+                self.execute::<AffectedRows>(query_string, bind_params)
+                    .await
+            }
+            Some(transaction) => {
+                transaction
+                    .execute::<AffectedRows>(query_string, bind_params)
+                    .await
+            }
+        }
     }
 
     /**

@@ -1,4 +1,3 @@
-use rorm_sql::conditional::Condition;
 use rorm_sql::value::Value;
 
 use crate::database::{Database, DatabaseConfiguration};
@@ -15,59 +14,15 @@ pub(crate) async fn connect(_configuration: DatabaseConfiguration) -> Result<Dat
     no_sqlx();
 }
 
-/// Implementation of [Database::insert_bulk]
-pub async fn insert_bulk(
-    db: &Database,
-    _model: &str,
-    _columns: &[&str],
-    _rows: &[&[Value<'_>]],
-    _transaction: Option<&mut Transaction<'_>>,
-) -> Result<(), Error> {
-    // "Read" pool at least once
-    let _ = db.pool;
-    no_sqlx();
-}
-
-/// Implementation of [Database::insert_bulk_returning]
-pub async fn insert_bulk_returning(
-    _db: &Database,
-    _model: &str,
-    _columns: &[&str],
-    _rows: &[&[Value<'_>]],
-    _transaction: Option<&mut Transaction<'_>>,
-    _returning: &[&str],
-) -> Result<Vec<Row>, Error> {
-    no_sqlx();
-}
-
-/// Implementation of [Database::delete]
-pub async fn delete<'post_build>(
-    _db: &Database,
-    _model: &str,
-    _condition: Option<&Condition<'post_build>>,
-    _transaction: Option<&mut Transaction<'_>>,
-) -> Result<u64, Error> {
-    no_sqlx();
-}
-
-/// Implementation of [Database::update]
-pub async fn update<'post_build>(
-    _db: &Database,
-    _model: &str,
-    _updates: &[(&str, Value<'post_build>)],
-    _condition: Option<&Condition<'post_build>>,
-    _transaction: Option<&mut Transaction<'_>>,
-) -> Result<u64, Error> {
-    no_sqlx();
-}
-
 /// Implementation of [Database::raw_sql]
 pub async fn raw_sql<'a>(
-    _db: &Database,
+    db: &Database,
     _query_string: &'a str,
     _bind_params: Option<&[Value<'a>]>,
     _transaction: Option<&mut Transaction<'_>>,
 ) -> Result<Vec<Row>, Error> {
+    // "Read" pool at least once
+    let _ = db.pool;
     no_sqlx();
 }
 
