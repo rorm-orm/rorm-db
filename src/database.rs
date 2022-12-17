@@ -2,19 +2,22 @@
 This module defines the main API wrapper.
 */
 
-use futures::stream::BoxStream;
-use futures::StreamExt;
-use log::LevelFilter;
+use futures::stream::{BoxStream, StreamExt};
+use log::{debug, LevelFilter};
 use rorm_declaration::config::DatabaseDriver;
+use rorm_sql::insert::Insert;
 use rorm_sql::join_table::JoinTableData;
 use rorm_sql::limit_clause::LimitClause;
 use rorm_sql::ordering::OrderByEntry;
+use rorm_sql::select::Select;
 use rorm_sql::select_column::SelectColumnData;
+use rorm_sql::value::Value;
 use rorm_sql::{conditional, value, DBImpl};
 
 use crate::error::Error;
-use crate::executor::{All, Nothing, One, Optional, Stream};
+use crate::executor::{All, Executor, Nothing, One, Optional, QueryStrategy, Stream};
 use crate::internal;
+use crate::query_type::GetLimitClause;
 use crate::row::Row;
 use crate::transaction::Transaction;
 
@@ -140,7 +143,7 @@ impl Database {
         'post_query: 'stream,
         'db: 'stream,
     {
-        internal::database::query::<Stream>(
+        Self::query::<Stream>(
             self,
             model,
             columns,
@@ -176,7 +179,7 @@ impl Database {
         offset: Option<u64>,
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<Row, Error> {
-        internal::database::query::<One>(
+        Self::query::<One>(
             self,
             model,
             columns,
@@ -211,7 +214,7 @@ impl Database {
         offset: Option<u64>,
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<Option<Row>, Error> {
-        internal::database::query::<Optional>(
+        Self::query::<Optional>(
             self,
             model,
             columns,
@@ -246,7 +249,7 @@ impl Database {
         limit: Option<LimitClause>,
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<Vec<Row>, Error> {
-        internal::database::query::<All>(
+        Self::query::<All>(
             self,
             model,
             columns,
@@ -257,6 +260,61 @@ impl Database {
             transaction,
         )
         .await
+    }
+
+    /// Generic implementation of:
+    /// - [Database::query_one]
+    /// - [Database::query_optional]
+    /// - [Database::query_all]
+    /// - [Database::query_stream]
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn query<
+        'result,
+        'db: 'result,
+        'post_query: 'result,
+        Q: QueryStrategy + GetLimitClause,
+    >(
+        db: &'db Database,
+        model: &str,
+        columns: &[ColumnSelector<'_>],
+        joins: &[JoinTable<'_, 'post_query>],
+        conditions: Option<&conditional::Condition<'post_query>>,
+        order_by_clause: &[OrderByEntry<'_>],
+        limit: <Q as GetLimitClause>::Input,
+        transaction: Option<&'db mut Transaction<'_>>,
+    ) -> Q::Result<'result> {
+        let columns: Vec<_> = columns
+            .iter()
+            .map(|c| {
+                db.db_impl
+                    .select_column(c.table_name, c.column_name, c.select_alias, c.aggregation)
+            })
+            .collect();
+        let joins: Vec<_> = joins
+            .iter()
+            .map(|j| {
+                db.db_impl
+                    .join_table(j.join_type, j.table_name, j.join_alias, j.join_condition)
+            })
+            .collect();
+        let mut q = db.db_impl.select(&columns, model, &joins, order_by_clause);
+
+        if let Some(condition) = conditions {
+            q = q.where_clause(condition);
+        }
+
+        if let Some(limit) = Q::get_limit_clause(limit) {
+            q = q.limit_clause(limit);
+        }
+
+        let (query_string, bind_params) = q.build();
+
+        debug!("SQL: {}", query_string);
+
+        match transaction {
+            None => db.execute::<Q>(query_string, bind_params),
+            Some(transaction) => transaction.execute::<Q>(query_string, bind_params),
+        }
     }
 
     /**
@@ -272,19 +330,12 @@ impl Database {
         &self,
         model: &str,
         columns: &[&str],
-        values: &[value::Value<'_>],
+        values: &[Value<'_>],
         transaction: Option<&mut Transaction<'_>>,
         returning: &[&str],
     ) -> Result<Row, Error> {
-        internal::database::insert::<One>(
-            self,
-            model,
-            columns,
-            values,
-            transaction,
-            Some(returning),
-        )
-        .await
+        Self::generic_insert::<One>(self, model, columns, values, transaction, Some(returning))
+            .await
     }
 
     /**
@@ -300,10 +351,34 @@ impl Database {
         &self,
         model: &str,
         columns: &[&str],
-        values: &[value::Value<'_>],
+        values: &[Value<'_>],
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<(), Error> {
-        internal::database::insert::<Nothing>(self, model, columns, values, transaction, None).await
+        Self::generic_insert::<Nothing>(self, model, columns, values, transaction, None).await
+    }
+
+    /// Generic implementation of:
+    /// - [Database::insert]
+    /// - [Database::insert_returning]
+    pub(crate) fn generic_insert<'result, 'db: 'result, 'post_query: 'result, Q: QueryStrategy>(
+        db: &'db Database,
+        model: &str,
+        columns: &[&str],
+        values: &[Value<'post_query>],
+        transaction: Option<&'db mut Transaction<'_>>,
+        returning: Option<&[&str]>,
+    ) -> Q::Result<'result> {
+        let values = &[values];
+        let q = db.db_impl.insert(model, columns, values, returning);
+
+        let (query_string, bind_params): (_, Vec<Value<'post_query>>) = q.build();
+
+        debug!("SQL: {}", query_string);
+
+        match transaction {
+            None => db.execute::<Q>(query_string, bind_params),
+            Some(transaction) => transaction.execute::<Q>(query_string, bind_params),
+        }
     }
 
     /**
@@ -321,7 +396,7 @@ impl Database {
         &self,
         model: &str,
         columns: &[&str],
-        rows: &[&[value::Value<'_>]],
+        rows: &[&[Value<'_>]],
         transaction: Option<&mut Transaction<'_>>,
     ) -> Result<(), Error> {
         internal::database::insert_bulk(self, model, columns, rows, transaction).await
@@ -342,7 +417,7 @@ impl Database {
         &self,
         model: &str,
         columns: &[&str],
-        rows: &[&[value::Value<'_>]],
+        rows: &[&[Value<'_>]],
         transaction: Option<&mut Transaction<'_>>,
         returning: &[&str],
     ) -> Result<Vec<Row>, Error> {

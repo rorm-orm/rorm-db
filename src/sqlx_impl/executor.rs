@@ -8,9 +8,10 @@ use futures::stream::{self, BoxStream, ErrInto, TryCollect, TryFilterMap, TryStr
 use rorm_sql::value::Value;
 
 use crate::executor::{All, Executor, Nothing, One, Optional, QueryStrategy, Stream};
-use crate::{utils, Error, Row};
+use crate::transaction::Transaction;
+use crate::{utils, Database, Error, Row};
 
-impl<'executor, E: sqlx::Executor<'executor, Database = sqlx::Any>> Executor<'executor> for E {
+impl<'executor> Executor<'executor> for &'executor mut Transaction<'_> {
     fn execute<'data, 'result, Q>(
         self,
         query: String,
@@ -21,7 +22,22 @@ impl<'executor, E: sqlx::Executor<'executor, Database = sqlx::Any>> Executor<'ex
         'data: 'result,
         Q: QueryStrategy,
     {
-        Q::execute(self, query, values)
+        Q::execute(&mut self.tx, query, values)
+    }
+}
+
+impl<'executor> Executor<'executor> for &'executor Database {
+    fn execute<'data, 'result, Q>(
+        self,
+        query: String,
+        values: Vec<Value<'data>>,
+    ) -> Q::Result<'result>
+    where
+        'executor: 'result,
+        'data: 'result,
+        Q: QueryStrategy,
+    {
+        Q::execute(&self.pool, query, values)
     }
 }
 

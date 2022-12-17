@@ -4,10 +4,6 @@ use log::{debug, LevelFilter};
 use rorm_declaration::config::DatabaseDriver;
 use rorm_sql::delete::Delete;
 use rorm_sql::insert::Insert;
-use rorm_sql::join_table::JoinTableImpl;
-use rorm_sql::ordering::OrderByEntry;
-use rorm_sql::select::Select;
-use rorm_sql::select_column::SelectColumnImpl;
 use rorm_sql::update::Update;
 use rorm_sql::value::Value;
 use rorm_sql::{conditional, DBImpl};
@@ -17,10 +13,9 @@ use sqlx::postgres::PgConnectOptions;
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::ConnectOptions;
 
-use crate::database::{ColumnSelector, Database, DatabaseConfiguration, JoinTable};
+use crate::database::{Database, DatabaseConfiguration};
 use crate::error::Error;
-use crate::executor::QueryStrategy;
-use crate::query_type::GetLimitClause;
+use crate::executor::{All, Executor, Nothing};
 use crate::row::Row;
 use crate::transaction::Transaction;
 use crate::utils;
@@ -157,85 +152,6 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
     Ok(database)
 }
 
-/// Generic implementation of:
-/// - [Database::query_one]
-/// - [Database::query_optional]
-/// - [Database::query_all]
-/// - [Database::query_stream]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn query<
-    'result,
-    'db: 'result,
-    'post_query: 'result,
-    Q: QueryStrategy + GetLimitClause,
->(
-    db: &'db Database,
-    model: &str,
-    columns: &[ColumnSelector<'_>],
-    joins: &[JoinTable<'_, 'post_query>],
-    conditions: Option<&conditional::Condition<'post_query>>,
-    order_by_clause: &[OrderByEntry<'_>],
-    limit: <Q as GetLimitClause>::Input,
-    transaction: Option<&'db mut Transaction<'_>>,
-) -> Q::Result<'result> {
-    let columns: Vec<SelectColumnImpl> = columns
-        .iter()
-        .map(|c| {
-            db.db_impl
-                .select_column(c.table_name, c.column_name, c.select_alias, c.aggregation)
-        })
-        .collect();
-    let joins: Vec<JoinTableImpl> = joins
-        .iter()
-        .map(|j| {
-            db.db_impl
-                .join_table(j.join_type, j.table_name, j.join_alias, j.join_condition)
-        })
-        .collect();
-    let mut q = db.db_impl.select(&columns, model, &joins, order_by_clause);
-
-    if let Some(condition) = conditions {
-        q = q.where_clause(condition);
-    }
-
-    if let Some(limit) = Q::get_limit_clause(limit) {
-        q = q.limit_clause(limit);
-    }
-
-    let (query_string, bind_params) = q.build();
-
-    debug!("SQL: {}", query_string);
-
-    match transaction {
-        None => Q::execute(&db.pool, query_string, bind_params),
-        Some(transaction) => Q::execute(&mut transaction.tx, query_string, bind_params),
-    }
-}
-
-/// Generic implementation of:
-/// - [Database::insert]
-/// - [Database::insert_returning]
-pub(crate) fn insert<'result, 'db: 'result, 'post_query: 'result, Q: QueryStrategy>(
-    db: &'db Database,
-    model: &str,
-    columns: &[&str],
-    values: &[Value<'post_query>],
-    transaction: Option<&'db mut Transaction<'_>>,
-    returning: Option<&[&str]>,
-) -> Q::Result<'result> {
-    let values = &[values];
-    let q = db.db_impl.insert(model, columns, values, returning);
-
-    let (query_string, bind_params): (_, Vec<Value<'post_query>>) = q.build();
-
-    debug!("SQL: {}", query_string);
-
-    match transaction {
-        None => Q::execute(&db.pool, query_string, bind_params),
-        Some(transaction) => Q::execute(&mut transaction.tx, query_string, bind_params),
-    }
-}
-
 /// Implementation of [Database::insert_bulk]
 pub async fn insert_bulk(
     db: &Database,
@@ -244,44 +160,34 @@ pub async fn insert_bulk(
     rows: &[&[Value<'_>]],
     transaction: Option<&mut Transaction<'_>>,
 ) -> Result<(), Error> {
-    match transaction {
+    return match transaction {
         None => {
-            let mut tx = db.pool.begin().await?;
-            for chunk in rows.chunks(25) {
-                let mut insert = db.db_impl.insert(model, columns, chunk, None);
-                insert = insert.rollback_transaction();
-                let (insert_query, insert_params) = insert.build();
-
-                debug!("SQL: {}", insert_query);
-
-                let mut q = sqlx::query(insert_query.as_str());
-
-                for x in insert_params {
-                    q = utils::bind_param(q, x);
-                }
-
-                q.execute(&mut tx).await?;
-            }
-            tx.commit().await.map_err(Error::SqlxError)
+            let mut transaction = db.start_transaction().await?;
+            with_transaction(db, &mut transaction, model, columns, rows).await?;
+            transaction.commit().await
         }
         Some(transaction) => {
-            for chunk in rows.chunks(25) {
-                let mut insert = db.db_impl.insert(model, columns, chunk, None);
-                insert = insert.rollback_transaction();
-                let (insert_query, insert_params) = insert.build();
-
-                debug!("SQL: {}", insert_query);
-
-                let mut q = sqlx::query(insert_query.as_str());
-
-                for x in insert_params {
-                    q = utils::bind_param(q, x);
-                }
-
-                q.execute(&mut transaction.tx).await?;
-            }
+            with_transaction(db, transaction, model, columns, rows).await?;
             Ok(())
         }
+    };
+    async fn with_transaction(
+        db: &Database,
+        tx: &mut Transaction<'_>,
+        model: &str,
+        columns: &[&str],
+        rows: &[&[Value<'_>]],
+    ) -> Result<(), Error> {
+        for chunk in rows.chunks(25) {
+            let mut insert = db.db_impl.insert(model, columns, chunk, None);
+            insert = insert.rollback_transaction();
+            let (insert_query, insert_params) = insert.build();
+
+            debug!("SQL: {}", insert_query);
+
+            tx.execute::<Nothing>(insert_query, insert_params).await?;
+        }
+        Ok(())
     }
 }
 
@@ -294,52 +200,37 @@ pub async fn insert_bulk_returning(
     transaction: Option<&mut Transaction<'_>>,
     returning: &[&str],
 ) -> Result<Vec<Row>, Error> {
-    let mut inserted = Vec::with_capacity(rows.len());
-    match transaction {
+    return match transaction {
         None => {
-            let mut tx = db.pool.begin().await?;
-            for chunk in rows.chunks(25) {
-                let mut insert = db.db_impl.insert(model, columns, chunk, Some(returning));
-                insert = insert.rollback_transaction();
-                let (insert_query, insert_params) = insert.build();
-
-                debug!("SQL: {}", insert_query);
-
-                let mut q = sqlx::query(insert_query.as_str());
-
-                for x in insert_params {
-                    q = utils::bind_param(q, x);
-                }
-
-                let rows = q.fetch_all(&mut tx).await?.into_iter().map(Row::from);
-                inserted.extend(rows);
-            }
-            tx.commit().await?;
-            Ok(inserted)
+            let mut transaction = db.start_transaction().await?;
+            let result =
+                with_transaction(db, &mut transaction, model, columns, rows, returning).await;
+            transaction.commit().await?;
+            result
         }
         Some(transaction) => {
-            for chunk in rows.chunks(25) {
-                let mut insert = db.db_impl.insert(model, columns, chunk, Some(returning));
-                insert = insert.rollback_transaction();
-                let (insert_query, insert_params) = insert.build();
-
-                debug!("SQL: {}", insert_query);
-
-                let mut q = sqlx::query(insert_query.as_str());
-
-                for x in insert_params {
-                    q = utils::bind_param(q, x);
-                }
-
-                let rows = q
-                    .fetch_all(&mut transaction.tx)
-                    .await?
-                    .into_iter()
-                    .map(Row::from);
-                inserted.extend(rows);
-            }
-            Ok(inserted)
+            with_transaction(db, transaction, model, columns, rows, returning).await
         }
+    };
+    async fn with_transaction(
+        db: &Database,
+        tx: &mut Transaction<'_>,
+        model: &str,
+        columns: &[&str],
+        rows: &[&[Value<'_>]],
+        returning: &[&str],
+    ) -> Result<Vec<Row>, Error> {
+        let mut inserted = Vec::with_capacity(rows.len());
+        for chunk in rows.chunks(25) {
+            let mut insert = db.db_impl.insert(model, columns, chunk, Some(returning));
+            insert = insert.rollback_transaction();
+            let (insert_query, insert_params) = insert.build();
+
+            debug!("SQL: {}", insert_query);
+
+            inserted.extend(tx.execute::<All>(insert_query, insert_params).await?);
+        }
+        Ok(inserted)
     }
 }
 

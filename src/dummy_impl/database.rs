@@ -1,11 +1,8 @@
 use rorm_sql::conditional::Condition;
-use rorm_sql::ordering::OrderByEntry;
 use rorm_sql::value::Value;
 
-use crate::database::{ColumnSelector, Database, DatabaseConfiguration, JoinTable};
+use crate::database::{Database, DatabaseConfiguration};
 use crate::error::Error;
-use crate::executor::QueryStrategy;
-use crate::query_type::GetLimitClause;
 use crate::row::Row;
 use crate::transaction::Transaction;
 
@@ -18,54 +15,16 @@ pub(crate) async fn connect(_configuration: DatabaseConfiguration) -> Result<Dat
     no_sqlx();
 }
 
-/// Generic implementation of:
-/// - [Database::query_one]
-/// - [Database::query_optional]
-/// - [Database::query_all]
-/// - [Database::query_stream]
-#[allow(clippy::too_many_arguments)]
-pub(crate) fn query<
-    'result,
-    'db: 'result,
-    'post_query: 'result,
-    Q: QueryStrategy + GetLimitClause,
->(
-    db: &'db Database,
-    _model: &str,
-    _columns: &[ColumnSelector<'_>],
-    _joins: &[JoinTable<'_, 'post_query>],
-    _conditions: Option<&Condition<'post_query>>,
-    _order_by_clause: &[OrderByEntry<'_>],
-    _limit: <Q as GetLimitClause>::Input,
-    _transaction: Option<&'db mut Transaction<'_>>,
-) -> Q::Result<'result> {
-    // "Read" pool at least once
-    let _ = db.pool;
-    no_sqlx();
-}
-
-/// Generic implementation of:
-/// - [Database::insert]
-/// - [Database::insert_returning]
-pub(crate) fn insert<'result, 'db: 'result, 'post_query: 'result, Q: QueryStrategy>(
-    _db: &'db Database,
-    _model: &str,
-    _columns: &[&str],
-    _values: &[Value<'post_query>],
-    _transaction: Option<&'db mut Transaction<'_>>,
-    _returning: Option<&[&str]>,
-) -> Q::Result<'result> {
-    no_sqlx();
-}
-
 /// Implementation of [Database::insert_bulk]
 pub async fn insert_bulk(
-    _db: &Database,
+    db: &Database,
     _model: &str,
     _columns: &[&str],
     _rows: &[&[Value<'_>]],
     _transaction: Option<&mut Transaction<'_>>,
 ) -> Result<(), Error> {
+    // "Read" pool at least once
+    let _ = db.pool;
     no_sqlx();
 }
 
