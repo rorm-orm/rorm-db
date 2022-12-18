@@ -9,6 +9,7 @@ pub(crate) type Impl<'db> = (PhantomData<&'db ()>, NotInstantiable);
 
 /// Implementation of [Transaction::commit]
 pub(crate) async fn commit(transaction: Transaction<'_>) -> Result<(), Error> {
+    // "Read" tx at least once
     let _ = transaction.tx;
     no_sqlx();
 }

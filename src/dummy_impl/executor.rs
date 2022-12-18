@@ -5,7 +5,9 @@ use rorm_sql::value::Value;
 
 use crate::database::Database;
 use crate::error::Error;
-use crate::executor::{AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, Stream};
+use crate::executor::{
+    AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, QueryStrategyResult, Stream,
+};
 use crate::row::Row;
 use crate::transaction::Transaction;
 
@@ -40,30 +42,29 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction<'_> {
     }
 }
 
-pub trait QueryStrategyImpl {
-    type Result<'a>;
-}
+pub trait QueryStrategyImpl: QueryStrategyResult {}
+impl<Q: QueryStrategyResult> QueryStrategyImpl for Q {}
 
-impl QueryStrategyImpl for Nothing {
+impl QueryStrategyResult for Nothing {
     type Result<'result> = Ready<Result<(), Error>>;
 }
 
-impl QueryStrategyImpl for AffectedRows {
+impl QueryStrategyResult for AffectedRows {
     type Result<'result> = Ready<Result<u64, Error>>;
 }
 
-impl QueryStrategyImpl for One {
+impl QueryStrategyResult for One {
     type Result<'result> = Ready<Result<Row, Error>>;
 }
 
-impl QueryStrategyImpl for Optional {
+impl QueryStrategyResult for Optional {
     type Result<'result> = Ready<Result<Option<Row>, Error>>;
 }
 
-impl QueryStrategyImpl for All {
+impl QueryStrategyResult for All {
     type Result<'result> = Ready<Result<Vec<Row>, Error>>;
 }
 
-impl QueryStrategyImpl for Stream {
+impl QueryStrategyResult for Stream {
     type Result<'result> = Empty<Result<Row, Error>>;
 }

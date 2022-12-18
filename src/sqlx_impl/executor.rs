@@ -7,7 +7,9 @@ use futures::future::{self, BoxFuture, FutureExt, TryFutureExt};
 use futures::stream::{self, BoxStream, TryCollect, TryFilterMap, TryStreamExt};
 use rorm_sql::value::Value;
 
-use crate::executor::{AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, Stream};
+use crate::executor::{
+    AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, QueryStrategyResult, Stream,
+};
 use crate::transaction::Transaction;
 use crate::{utils, Database, Error, Row};
 
@@ -41,9 +43,7 @@ impl<'executor> Executor<'executor> for &'executor Database {
     }
 }
 
-pub trait QueryStrategyImpl {
-    type Result<'a>;
-
+pub trait QueryStrategyImpl: QueryStrategyResult {
     fn execute<'executor, 'data, 'result, E>(
         executor: E,
         query: String,
@@ -112,7 +112,7 @@ where
     }
 }
 
-impl QueryStrategyImpl for Nothing {
+impl QueryStrategyResult for Nothing {
     type Result<'result> = QueryFuture<
         future::MapOk<
             TryCollect<
@@ -122,7 +122,9 @@ impl QueryStrategyImpl for Nothing {
             fn(Vec<()>) -> (),
         >,
     >;
+}
 
+impl QueryStrategyImpl for Nothing {
     fn execute<'executor, 'data, 'result, E>(
         executor: E,
         query: String,
@@ -147,7 +149,7 @@ impl QueryStrategyImpl for Nothing {
     }
 }
 
-impl QueryStrategyImpl for AffectedRows {
+impl QueryStrategyResult for AffectedRows {
     type Result<'result> = QueryFuture<
         future::ErrInto<
             stream::TryFold<
@@ -159,7 +161,8 @@ impl QueryStrategyImpl for AffectedRows {
             Error,
         >,
     >;
-
+}
+impl QueryStrategyImpl for AffectedRows {
     fn execute<'executor, 'data, 'result, E>(
         executor: E,
         query: String,
@@ -187,7 +190,7 @@ impl QueryStrategyImpl for AffectedRows {
     }
 }
 
-impl QueryStrategyImpl for One {
+impl QueryStrategyResult for One {
     type Result<'result> = QueryFuture<
         future::ErrInto<
             future::Map<
@@ -197,7 +200,8 @@ impl QueryStrategyImpl for One {
             Error,
         >,
     >;
-
+}
+impl QueryStrategyImpl for One {
     fn execute<'executor, 'data, 'result, E>(
         executor: E,
         query: String,
@@ -222,14 +226,15 @@ impl QueryStrategyImpl for One {
     }
 }
 
-impl QueryStrategyImpl for Optional {
+impl QueryStrategyResult for Optional {
     type Result<'result> = QueryFuture<
         future::ErrInto<
             future::MapOk<FetchOptional<'result>, fn(Option<sqlx::any::AnyRow>) -> Option<Row>>,
             Error,
         >,
     >;
-
+}
+impl QueryStrategyImpl for Optional {
     fn execute<'executor, 'data, 'result, E>(
         executor: E,
         query: String,
@@ -261,7 +266,7 @@ static TRY_FILTER_MAP: fn(AnyEither) -> Ready<Result<Option<Row>, sqlx::Error>> 
     convert
 };
 
-impl QueryStrategyImpl for All {
+impl QueryStrategyResult for All {
     type Result<'result> = QueryFuture<
         TryCollect<
             stream::ErrInto<
@@ -275,7 +280,8 @@ impl QueryStrategyImpl for All {
             Vec<Row>,
         >,
     >;
-
+}
+impl QueryStrategyImpl for All {
     fn execute<'executor, 'data, 'result, E>(
         executor: E,
         query: String,
@@ -296,7 +302,7 @@ impl QueryStrategyImpl for All {
     }
 }
 
-impl QueryStrategyImpl for Stream {
+impl QueryStrategyResult for Stream {
     type Result<'result> = QueryStream<
         stream::ErrInto<
             TryFilterMap<
@@ -307,7 +313,8 @@ impl QueryStrategyImpl for Stream {
             Error,
         >,
     >;
-
+}
+impl QueryStrategyImpl for Stream {
     fn execute<'executor, 'data, 'result, E>(
         executor: E,
         query: String,

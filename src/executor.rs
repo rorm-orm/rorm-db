@@ -57,7 +57,14 @@ impl QueryStrategy for Stream {}
 /// To avoid boxing, these types are quite big.
 ///
 /// Each of those unit structs' docs (follow links above) contains an easy to read `impl Trait` version of the actual types.
-pub trait QueryStrategy: internal::executor::QueryStrategyImpl {}
+pub trait QueryStrategy: QueryStrategyResult + internal::executor::QueryStrategyImpl {}
+
+/// Helper trait to make the `Result<'result> public,
+/// while keeping [QueryStrategyImpl](internal::executor::QueryStrategyImpl) itself private
+#[doc(hidden)]
+pub trait QueryStrategyResult {
+    type Result<'result>;
+}
 
 /// Some kind of database connection which can execute queries
 ///

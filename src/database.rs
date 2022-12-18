@@ -130,6 +130,9 @@ impl Database {
     - `limit`: Optional limit / offset to apply to the query.
     - `transaction`: Optional transaction to execute the query on.
      */
+    #[deprecated(
+        note = "Will be removed to reduce number of methods to maintain\nUse `query::<Stream>` instead!"
+    )]
     #[allow(clippy::too_many_arguments)]
     pub fn query_stream<'db, 'post_query, 'stream>(
         &'db self,
@@ -170,6 +173,9 @@ impl Database {
     - `offset`: Optional offset to apply to the query.
     - `transaction`: Optional transaction to execute the query on.
      */
+    #[deprecated(
+        note = "Will be removed to reduce number of methods to maintain\nUse `query::<One>` instead!"
+    )]
     #[allow(clippy::too_many_arguments)]
     pub async fn query_one(
         &self,
@@ -205,6 +211,9 @@ impl Database {
     - `offset`: Optional offset to apply to the query.
     - `transaction`: Optional transaction to execute the query on.
      */
+    #[deprecated(
+        note = "Will be removed to reduce number of methods to maintain\nUse `query::<Optional>` instead!"
+    )]
     #[allow(clippy::too_many_arguments)]
     pub async fn query_optional(
         &self,
@@ -240,6 +249,9 @@ impl Database {
     - `limit`: Optional limit / offset to apply to the query.
     - `transaction`: Optional transaction to execute the query on.
      */
+    #[deprecated(
+        note = "Will be removed to reduce number of methods to maintain\nUse `query::<All>` instead!"
+    )]
     #[allow(clippy::too_many_arguments)]
     pub async fn query_all(
         &self,
@@ -264,42 +276,53 @@ impl Database {
         .await
     }
 
-    /// Generic implementation of:
-    /// - [Database::query_one]
-    /// - [Database::query_optional]
-    /// - [Database::query_all]
-    /// - [Database::query_stream]
+    /**
+    This method is used to retrieve rows that match the provided query.
+
+    It is generic over a [QueryStrategy] which specifies how and how many rows to query.
+
+    **Parameter**:
+    - `model`: Model to query.
+    - `columns`: Columns to retrieve values from.
+    - `joins`: Join tables expressions.
+    - `conditions`: Optional conditions to apply.
+    - `limit`: Optional limit / offset to apply to the query.
+        Depending on the query strategy, this is either [LimitClause] (for [All] and [Stream])
+        or a simple [u64] (for [One] and [Optional]).
+    - `transaction`: Optional transaction to execute the query on.
+     */
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn query<
-        'result,
-        'db: 'result,
-        'post_query: 'result,
-        Q: QueryStrategy + GetLimitClause,
-    >(
-        db: &'db Database,
+    pub fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryStrategy + GetLimitClause>(
+        &'db self,
         model: &str,
         columns: &[ColumnSelector<'_>],
         joins: &[JoinTable<'_, 'post_query>],
         conditions: Option<&conditional::Condition<'post_query>>,
         order_by_clause: &[OrderByEntry<'_>],
-        limit: <Q as GetLimitClause>::Input,
+        limit: Option<Q::LimitOrOffset>,
         transaction: Option<&'db mut Transaction<'_>>,
     ) -> Q::Result<'result> {
         let columns: Vec<_> = columns
             .iter()
             .map(|c| {
-                db.db_impl
-                    .select_column(c.table_name, c.column_name, c.select_alias, c.aggregation)
+                self.db_impl.select_column(
+                    c.table_name,
+                    c.column_name,
+                    c.select_alias,
+                    c.aggregation,
+                )
             })
             .collect();
         let joins: Vec<_> = joins
             .iter()
             .map(|j| {
-                db.db_impl
+                self.db_impl
                     .join_table(j.join_type, j.table_name, j.join_alias, j.join_condition)
             })
             .collect();
-        let mut q = db.db_impl.select(&columns, model, &joins, order_by_clause);
+        let mut q = self
+            .db_impl
+            .select(&columns, model, &joins, order_by_clause);
 
         if let Some(condition) = conditions {
             q = q.where_clause(condition);
@@ -314,7 +337,7 @@ impl Database {
         debug!("SQL: {}", query_string);
 
         match transaction {
-            None => db.execute::<Q>(query_string, bind_params),
+            None => self.execute::<Q>(query_string, bind_params),
             Some(transaction) => transaction.execute::<Q>(query_string, bind_params),
         }
     }
@@ -444,7 +467,7 @@ impl Database {
     - `transaction`: Optional transaction to execute the query on.
      */
     pub async fn insert_bulk_returning(
-        self: &Database,
+        &self,
         model: &str,
         columns: &[&str],
         rows: &[&[Value<'_>]],
@@ -497,7 +520,7 @@ impl Database {
     relations, etc.
      */
     pub async fn delete<'post_build>(
-        self: &Database,
+        &self,
         model: &str,
         condition: Option<&conditional::Condition<'post_build>>,
         transaction: Option<&mut Transaction<'_>>,
@@ -538,7 +561,7 @@ impl Database {
     relations, etc.
      */
     pub async fn update<'post_build>(
-        self: &Database,
+        &self,
         model: &str,
         updates: &[(&str, Value<'post_build>)],
         condition: Option<&conditional::Condition<'post_build>>,

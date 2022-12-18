@@ -9,8 +9,8 @@ pub(crate) fn no_sqlx() -> ! {
         Your binary was compiled without specifiying a runtime and tls implementation.
         
         One of async-std-native-tls, async-std-rustls, tokio-native-tls, tokio-rustls, 
-    actix-native-tls, actix-rustls is required.
-    "#
+        actix-native-tls, actix-rustls is required.
+        "#
     );
 }
 
