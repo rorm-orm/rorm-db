@@ -62,6 +62,10 @@ const _: () = {
 pub trait FromRow: Sized {
     /// Try decoding a [row](Row) into `Self`.
     fn from_row(row: Row) -> Result<Self, Error>;
+
+    /// A version of [from_row](FromRow::from_row) which uses the columns positions instead of names.
+    /// This is a work-around until [mariaDB](https://github.com/rorm-orm/rorm/issues/33) is fixed.
+    fn from_row_using_position(row: Row) -> Result<Self, Error>;
 }
 
 macro_rules! impl_from_row {
@@ -78,6 +82,10 @@ macro_rules! impl_from_row {
                         row.get::<$generic, usize>($index)?,
                     )+
                 ))
+            }
+
+            fn from_row_using_position(row: Row) -> Result<Self, Error> {
+                Self::from_row(row)
             }
         }
     };
