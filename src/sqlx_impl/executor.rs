@@ -6,6 +6,7 @@ use aliasable::string::AliasableString;
 use futures::future::{self, BoxFuture, FutureExt, TryFutureExt};
 use futures::stream::{self, BoxStream, TryCollect, TryFilterMap, TryStreamExt};
 use rorm_sql::value::Value;
+use rorm_sql::DBImpl;
 
 use crate::executor::{
     AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, QueryStrategyResult, Stream,
@@ -26,6 +27,10 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction {
     {
         Q::execute(&mut self.tx, query, values)
     }
+
+    fn dialect(&self) -> DBImpl {
+        self.db_impl
+    }
 }
 
 impl<'executor> Executor<'executor> for &'executor Database {
@@ -40,6 +45,10 @@ impl<'executor> Executor<'executor> for &'executor Database {
         Q: QueryStrategy,
     {
         Q::execute(&self.pool, query, values)
+    }
+
+    fn dialect(&self) -> DBImpl {
+        self.db_impl
     }
 }
 

@@ -104,15 +104,6 @@ pub struct Database {
 
 impl Database {
     /**
-    Access the used driver at runtime.
-
-    This can be used to generate SQL statements for the chosen dialect.
-    */
-    pub fn get_sql_dialect(&self) -> DBImpl {
-        self.db_impl
-    }
-
-    /**
     Connect to the database using `configuration`.
      */
     pub async fn connect(configuration: DatabaseConfiguration) -> Result<Self, Error> {
@@ -305,7 +296,7 @@ impl Database {
         let columns: Vec<_> = columns
             .iter()
             .map(|c| {
-                self.db_impl.select_column(
+                self.dialect().select_column(
                     c.table_name,
                     c.column_name,
                     c.select_alias,
@@ -316,12 +307,12 @@ impl Database {
         let joins: Vec<_> = joins
             .iter()
             .map(|j| {
-                self.db_impl
+                self.dialect()
                     .join_table(j.join_type, j.table_name, j.join_alias, j.join_condition)
             })
             .collect();
         let mut q = self
-            .db_impl
+            .dialect()
             .select(&columns, model, &joins, order_by_clause);
 
         if let Some(condition) = conditions {
@@ -394,7 +385,7 @@ impl Database {
         returning: Option<&[&str]>,
     ) -> Q::Result<'result> {
         let values = &[values];
-        let q = db.db_impl.insert(model, columns, values, returning);
+        let q = db.dialect().insert(model, columns, values, returning);
 
         let (query_string, bind_params): (_, Vec<Value<'post_query>>) = q.build();
 
@@ -443,7 +434,7 @@ impl Database {
             rows: &[&[Value<'_>]],
         ) -> Result<(), Error> {
             for chunk in rows.chunks(25) {
-                let mut insert = db.db_impl.insert(model, columns, chunk, None);
+                let mut insert = db.dialect().insert(model, columns, chunk, None);
                 insert = insert.rollback_transaction();
                 let (insert_query, insert_params) = insert.build();
 
@@ -496,7 +487,7 @@ impl Database {
         ) -> Result<Vec<Row>, Error> {
             let mut inserted = Vec::with_capacity(rows.len());
             for chunk in rows.chunks(25) {
-                let mut insert = db.db_impl.insert(model, columns, chunk, Some(returning));
+                let mut insert = db.dialect().insert(model, columns, chunk, Some(returning));
                 insert = insert.rollback_transaction();
                 let (insert_query, insert_params) = insert.build();
 
@@ -525,7 +516,7 @@ impl Database {
         condition: Option<&conditional::Condition<'post_build>>,
         transaction: Option<&mut Transaction>,
     ) -> Result<u64, Error> {
-        let mut q = self.db_impl.delete(model);
+        let mut q = self.dialect().delete(model);
         if condition.is_some() {
             q = q.where_clause(condition.unwrap());
         }
@@ -567,7 +558,7 @@ impl Database {
         condition: Option<&conditional::Condition<'post_build>>,
         transaction: Option<&mut Transaction>,
     ) -> Result<u64, Error> {
-        let mut stmt = self.db_impl.update(model);
+        let mut stmt = self.dialect().update(model);
 
         for (column, value) in updates {
             stmt = stmt.add_update(column, *value);

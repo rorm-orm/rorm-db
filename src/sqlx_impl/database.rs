@@ -182,5 +182,8 @@ pub async fn raw_sql<'a>(
 pub async fn start_transaction(db: &Database) -> Result<Transaction, Error> {
     let tx = db.pool.begin().await.map_err(Error::SqlxError)?;
 
-    Ok(Transaction { tx })
+    Ok(Transaction {
+        tx,
+        db_impl: db.db_impl,
+    })
 }

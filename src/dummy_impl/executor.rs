@@ -2,6 +2,7 @@ use std::future::Ready;
 
 use futures::stream::Empty;
 use rorm_sql::value::Value;
+use rorm_sql::DBImpl;
 
 use crate::database::Database;
 use crate::error::Error;
@@ -26,6 +27,10 @@ impl<'executor> Executor<'executor> for &'executor Database {
     {
         no_sqlx();
     }
+
+    fn dialect(&self) -> DBImpl {
+        self.db_impl
+    }
 }
 impl<'executor> Executor<'executor> for &'executor mut Transaction<'_> {
     fn execute<'data, 'result, Q>(
@@ -39,6 +44,10 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction<'_> {
         Q: QueryStrategy,
     {
         no_sqlx();
+    }
+
+    fn dialect(&self) -> DBImpl {
+        self.db_impl
     }
 }
 

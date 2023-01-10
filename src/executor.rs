@@ -4,6 +4,7 @@
 //! our [Executor] has a single method which is generic using the [QueryStrategy] trait.
 
 use rorm_sql::value::Value;
+use rorm_sql::DBImpl;
 
 use crate::internal;
 
@@ -84,4 +85,7 @@ pub trait Executor<'executor> {
         'executor: 'result,
         'data: 'result,
         Q: QueryStrategy;
+
+    /// Get the executor's sql dialect.
+    fn dialect(&self) -> DBImpl;
 }
