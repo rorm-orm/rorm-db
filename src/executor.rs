@@ -5,8 +5,10 @@
 
 use rorm_sql::value::Value;
 use rorm_sql::DBImpl;
+use std::future::Future;
 
-use crate::internal;
+use crate::transaction::TransactionGuard;
+use crate::{internal, Error};
 
 /// [QueryStrategy] returning nothing
 ///
@@ -88,4 +90,17 @@ pub trait Executor<'executor> {
 
     /// Get the executor's sql dialect.
     fn dialect(&self) -> DBImpl;
+
+    /// A future producing a [`TransactionGuard`] returned by [`ensure_transaction`](Executor::ensure_transaction)
+    type EnsureTransactionFuture: Future<Output = Result<TransactionGuard<'executor>, Error>>;
+
+    /// Ensure a piece of code is run inside a transaction using a [`TransactionGuard`].
+    ///
+    /// In generic code an [`Executor`] might and might not be a [`&mut Transaction`].
+    /// But sometimes you'd want to ensure your code is run inside a transaction
+    /// (for example [bulk inserts](crate::database::insert_bulk)).
+    ///
+    /// This method solves this by producing a type which is either an owned or borrowed Transaction
+    /// depending on the [`Executor`] it is called on.
+    fn ensure_transaction(self) -> Self::EnsureTransactionFuture;
 }

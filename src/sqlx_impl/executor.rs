@@ -1,4 +1,4 @@
-use std::future::Ready;
+use std::future::{ready, Future, Ready};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -11,7 +11,7 @@ use rorm_sql::DBImpl;
 use crate::executor::{
     AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, QueryStrategyResult, Stream,
 };
-use crate::transaction::Transaction;
+use crate::transaction::{Transaction, TransactionGuard};
 use crate::{utils, Database, Error, Row};
 
 impl<'executor> Executor<'executor> for &'executor mut Transaction {
@@ -31,6 +31,12 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction {
     fn dialect(&self) -> DBImpl {
         self.db_impl
     }
+
+    type EnsureTransactionFuture = Ready<Result<TransactionGuard<'executor>, Error>>;
+
+    fn ensure_transaction(self) -> Self::EnsureTransactionFuture {
+        ready(Ok(TransactionGuard::Borrowed(self)))
+    }
 }
 
 impl<'executor> Executor<'executor> for &'executor Database {
@@ -49,6 +55,13 @@ impl<'executor> Executor<'executor> for &'executor Database {
 
     fn dialect(&self) -> DBImpl {
         self.db_impl
+    }
+
+    type EnsureTransactionFuture =
+        Pin<Box<dyn Future<Output = Result<TransactionGuard<'executor>, Error>> + 'executor>>;
+
+    fn ensure_transaction(self) -> Self::EnsureTransactionFuture {
+        Box::pin(async move { self.start_transaction().await.map(TransactionGuard::Owned) })
     }
 }
 
