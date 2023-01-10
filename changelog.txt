@@ -1,3 +1,6 @@
 Since 0.6.0
 -----------
 
+- Removed Transaction's lifetime
+- Refactored `query`, `insert_...`, `update`, `delete` to work on generic
+  `Executor` instead of `Database`
