@@ -13,7 +13,7 @@ use crate::executor::{
 use crate::transaction::Transaction;
 use crate::{utils, Database, Error, Row};
 
-impl<'executor> Executor<'executor> for &'executor mut Transaction<'_> {
+impl<'executor> Executor<'executor> for &'executor mut Transaction {
     fn execute<'data, 'result, Q>(
         self,
         query: String,

@@ -1,11 +1,9 @@
-use std::marker::PhantomData;
-
 use crate::transaction::Transaction;
 use crate::Error;
 
 use super::{no_sqlx, NotInstantiable};
 
-pub(crate) type Impl<'db> = (PhantomData<&'db ()>, NotInstantiable);
+pub(crate) type Impl = NotInstantiable;
 
 /// Implementation of [Transaction::commit]
 pub(crate) async fn commit(transaction: Transaction<'_>) -> Result<(), Error> {

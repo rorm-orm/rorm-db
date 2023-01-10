@@ -153,7 +153,7 @@ pub async fn raw_sql<'a>(
     db: &Database,
     query_string: &'a str,
     bind_params: Option<&[Value<'a>]>,
-    transaction: Option<&mut Transaction<'_>>,
+    transaction: Option<&mut Transaction>,
 ) -> Result<Vec<Row>, Error> {
     debug!("SQL: {}", query_string);
 

@@ -9,11 +9,12 @@ database.
 
 Can be obtained using [crate::Database::start_transaction].
 */
-pub struct Transaction<'db> {
-    pub(crate) tx: internal::transaction::Impl<'db>,
+#[must_use = "A transaction needs to be committed."]
+pub struct Transaction {
+    pub(crate) tx: internal::transaction::Impl,
 }
 
-impl<'db> Transaction<'db> {
+impl Transaction {
     /// This function commits the transaction.
     pub async fn commit(self) -> Result<(), Error> {
         internal::transaction::commit(self).await

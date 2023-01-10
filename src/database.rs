@@ -142,7 +142,7 @@ impl Database {
         conditions: Option<&conditional::Condition<'post_query>>,
         order_by_clause: &[OrderByEntry<'_>],
         limit: Option<LimitClause>,
-        transaction: Option<&'stream mut Transaction<'_>>,
+        transaction: Option<&'stream mut Transaction>,
     ) -> BoxStream<'stream, Result<Row, Error>>
     where
         'post_query: 'stream,
@@ -185,7 +185,7 @@ impl Database {
         conditions: Option<&conditional::Condition<'_>>,
         order_by_clause: &[OrderByEntry<'_>],
         offset: Option<u64>,
-        transaction: Option<&mut Transaction<'_>>,
+        transaction: Option<&mut Transaction>,
     ) -> Result<Row, Error> {
         Self::query::<One>(
             self,
@@ -223,7 +223,7 @@ impl Database {
         conditions: Option<&conditional::Condition<'_>>,
         order_by_clause: &[OrderByEntry<'_>],
         offset: Option<u64>,
-        transaction: Option<&mut Transaction<'_>>,
+        transaction: Option<&mut Transaction>,
     ) -> Result<Option<Row>, Error> {
         Self::query::<Optional>(
             self,
@@ -261,7 +261,7 @@ impl Database {
         conditions: Option<&conditional::Condition<'_>>,
         order_by_clause: &[OrderByEntry<'_>],
         limit: Option<LimitClause>,
-        transaction: Option<&mut Transaction<'_>>,
+        transaction: Option<&mut Transaction>,
     ) -> Result<Vec<Row>, Error> {
         Self::query::<All>(
             self,
@@ -300,7 +300,7 @@ impl Database {
         conditions: Option<&conditional::Condition<'post_query>>,
         order_by_clause: &[OrderByEntry<'_>],
         limit: Option<Q::LimitOrOffset>,
-        transaction: Option<&'db mut Transaction<'_>>,
+        transaction: Option<&'db mut Transaction>,
     ) -> Q::Result<'result> {
         let columns: Vec<_> = columns
             .iter()
@@ -356,7 +356,7 @@ impl Database {
         model: &str,
         columns: &[&str],
         values: &[Value<'_>],
-        transaction: Option<&mut Transaction<'_>>,
+        transaction: Option<&mut Transaction>,
         returning: &[&str],
     ) -> Result<Row, Error> {
         Self::generic_insert::<One>(self, model, columns, values, transaction, Some(returning))
@@ -377,7 +377,7 @@ impl Database {
         model: &str,
         columns: &[&str],
         values: &[Value<'_>],
-        transaction: Option<&mut Transaction<'_>>,
+        transaction: Option<&mut Transaction>,
     ) -> Result<(), Error> {
         Self::generic_insert::<Nothing>(self, model, columns, values, transaction, None).await
     }
@@ -390,7 +390,7 @@ impl Database {
         model: &str,
         columns: &[&str],
         values: &[Value<'post_query>],
-        transaction: Option<&'db mut Transaction<'_>>,
+        transaction: Option<&'db mut Transaction>,
         returning: Option<&[&str]>,
     ) -> Q::Result<'result> {
         let values = &[values];
@@ -422,7 +422,7 @@ impl Database {
         model: &str,
         columns: &[&str],
         rows: &[&[Value<'_>]],
-        transaction: Option<&mut Transaction<'_>>,
+        transaction: Option<&mut Transaction>,
     ) -> Result<(), Error> {
         return match transaction {
             None => {
@@ -437,7 +437,7 @@ impl Database {
         };
         async fn with_transaction(
             db: &Database,
-            tx: &mut Transaction<'_>,
+            tx: &mut Transaction,
             model: &str,
             columns: &[&str],
             rows: &[&[Value<'_>]],
@@ -471,7 +471,7 @@ impl Database {
         model: &str,
         columns: &[&str],
         rows: &[&[Value<'_>]],
-        transaction: Option<&mut Transaction<'_>>,
+        transaction: Option<&mut Transaction>,
         returning: &[&str],
     ) -> Result<Vec<Row>, Error> {
         return match transaction {
@@ -488,7 +488,7 @@ impl Database {
         };
         async fn with_transaction(
             db: &Database,
-            tx: &mut Transaction<'_>,
+            tx: &mut Transaction,
             model: &str,
             columns: &[&str],
             rows: &[&[Value<'_>]],
@@ -523,7 +523,7 @@ impl Database {
         &self,
         model: &str,
         condition: Option<&conditional::Condition<'post_build>>,
-        transaction: Option<&mut Transaction<'_>>,
+        transaction: Option<&mut Transaction>,
     ) -> Result<u64, Error> {
         let mut q = self.db_impl.delete(model);
         if condition.is_some() {
@@ -565,7 +565,7 @@ impl Database {
         model: &str,
         updates: &[(&str, Value<'post_build>)],
         condition: Option<&conditional::Condition<'post_build>>,
-        transaction: Option<&mut Transaction<'_>>,
+        transaction: Option<&mut Transaction>,
     ) -> Result<u64, Error> {
         let mut stmt = self.db_impl.update(model);
 
@@ -613,7 +613,7 @@ impl Database {
         &self,
         query_string: &'a str,
         bind_params: Option<&[value::Value<'a>]>,
-        transaction: Option<&mut Transaction<'_>>,
+        transaction: Option<&mut Transaction>,
     ) -> Result<Vec<Row>, Error> {
         internal::database::raw_sql(self, query_string, bind_params, transaction).await
     }
