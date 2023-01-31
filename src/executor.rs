@@ -1,7 +1,7 @@
 //! This module defines a wrapper for sqlx's Executor
 //!
 //! Unlike sqlx's Executor which provides several separate methods for different querying strategies,
-//! our [Executor] has a single method which is generic using the [QueryStrategy] trait.
+//! our [`Executor`] has a single method which is generic using the [`QueryStrategy`] trait.
 
 use rorm_sql::value::Value;
 use rorm_sql::DBImpl;
@@ -10,37 +10,37 @@ use std::future::Future;
 use crate::transaction::TransactionGuard;
 use crate::{internal, Error};
 
-/// [QueryStrategy] returning nothing
+/// [`QueryStrategy`] returning nothing
 ///
 /// `type Result<'result> = impl Future<Output = Result<(), Error>>`
 pub struct Nothing;
 impl QueryStrategy for Nothing {}
 
-/// [QueryStrategy] returning how many rows have been affected by the query
+/// [`QueryStrategy`] returning how many rows have been affected by the query
 ///
 /// `type Result<'result> = impl Future<Output = Result<u64, Error>>`
 pub struct AffectedRows;
 impl QueryStrategy for AffectedRows {}
 
-/// [QueryStrategy] returning a single row
+/// [`QueryStrategy`] returning a single row
 ///
 /// `type Result<'result> = impl Future<Output = Result<Row, Error>>`
 pub struct One;
 impl QueryStrategy for One {}
 
-/// [QueryStrategy] returning an optional row
+/// [`QueryStrategy`] returning an optional row
 ///
 /// `type Result<'result> = impl Future<Output = Result<Option<Row>, Error>>`
 pub struct Optional;
 impl QueryStrategy for Optional {}
 
-/// [QueryStrategy] returning a vector of rows
+/// [`QueryStrategy`] returning a vector of rows
 ///
 /// `type Result<'result> = impl Future<Output = Result<Vec<Row>, Error>>`
 pub struct All;
 impl QueryStrategy for All {}
 
-/// [QueryStrategy] returning a stream of rows
+/// [`QueryStrategy`] returning a stream of rows
 ///
 /// `type Result<'result> = impl Stream<Item = Result<Row, Error>>`
 pub struct Stream;
@@ -49,21 +49,21 @@ impl QueryStrategy for Stream {}
 /// Define how a query is send to and results retrieved from the database.
 ///
 /// This trait is implemented on the following unit structs:
-/// - [Nothing] retrieves nothing
-/// - [Optional] retrieves an optional row
-/// - [One] retrieves a single row
-/// - [Stream] retrieves many rows in a stream
-/// - [All] retrieves many rows in a vector
-/// - [AffectedRows] returns the number of rows affected by the query
+/// - [`Nothing`] retrieves nothing
+/// - [`Optional`] retrieves an optional row
+/// - [`One`] retrieves a single row
+/// - [`Stream`] retrieves many rows in a stream
+/// - [`All`] retrieves many rows in a vector
+/// - [`AffectedRows`] returns the number of rows affected by the query
 ///
-/// This trait has an associated `Result<'result>` type which is returned by [Executor::execute].
+/// This trait has an associated `Result<'result>` type which is returned by [`Executor::execute`].
 /// To avoid boxing, these types are quite big.
 ///
 /// Each of those unit structs' docs (follow links above) contains an easy to read `impl Trait` version of the actual types.
 pub trait QueryStrategy: QueryStrategyResult + internal::executor::QueryStrategyImpl {}
 
-/// Helper trait to make the `Result<'result> public,
-/// while keeping [QueryStrategyImpl](internal::executor::QueryStrategyImpl) itself private
+/// Helper trait to make the `Result<'result>` public,
+/// while keeping [`QueryStrategyImpl`](internal::executor::QueryStrategyImpl) itself private
 #[doc(hidden)]
 pub trait QueryStrategyResult {
     type Result<'result>;

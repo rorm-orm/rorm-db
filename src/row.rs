@@ -26,21 +26,21 @@ impl From<internal::row::Impl> for Row {
     }
 }
 
-/// Something which can be decoded from a [row](Row)'s cell.
+/// Something which can be decoded from a [`Row`]'s cell.
 #[cfg(feature = "sqlx")]
 pub trait Decode<'r>: sqlx::Type<sqlx::Any> + sqlx::Decode<'r, sqlx::Any> {}
-/// Something which can be decoded from a [row](Row)'s cell.
+/// Something which can be decoded from a [`Row`]'s cell.
 #[cfg(not(feature = "sqlx"))]
 pub trait Decode<'r> {}
 
-/// Something which can be used to index a [row](Row)'s cells.
+/// Something which can be used to index a [`Row`]'s cells.
 #[cfg(feature = "sqlx")]
 pub trait RowIndex: sqlx::ColumnIndex<sqlx::any::AnyRow> {}
-/// Something which can be used to index a [row](Row)'s cells.
+/// Something which can be used to index a [`Row`]'s cells.
 #[cfg(not(feature = "sqlx"))]
 pub trait RowIndex {}
 
-/// Something which can be decoded from a [row](Row)'s cell without borrowing.
+/// Something which can be decoded from a [`Row`]'s cell without borrowing.
 pub trait DecodeOwned: for<'r> Decode<'r> {}
 impl<T: for<'r> Decode<'r>> DecodeOwned for T {}
 
@@ -56,14 +56,14 @@ const _: () = {
     impl RowIndex for &str {}
 };
 
-/// Something which can be decoded from a [row](Row).
+/// Something which can be decoded from a [`Row`].
 ///
 /// Auto-implemented for tuples of size 8 or less.
 pub trait FromRow: Sized {
-    /// Try decoding a [row](Row) into `Self`.
+    /// Try decoding a [`Row`] into `Self`.
     fn from_row(row: Row) -> Result<Self, Error>;
 
-    /// A version of [from_row](FromRow::from_row) which uses the columns positions instead of names.
+    /// A version of [`from_row`](FromRow::from_row) which uses the columns positions instead of names.
     /// This is a work-around until [mariaDB](https://github.com/rorm-orm/rorm/issues/33) is fixed.
     fn from_row_using_position(row: Row) -> Result<Self, Error>;
 }

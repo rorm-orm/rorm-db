@@ -8,7 +8,7 @@ Transactions can be used to provide a safe way to execute multiple SQL operation
 after another with a way to go back to the start without something changed in the
 database.
 
-Can be obtained using [crate::Database::start_transaction].
+Can be obtained using [`Database::start_transaction`](crate::Database::start_transaction).
 */
 #[must_use = "A transaction needs to be committed."]
 pub struct Transaction {

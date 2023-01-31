@@ -22,14 +22,14 @@ use crate::row::Row;
 use crate::transaction::Transaction;
 
 /**
-Type alias for [SelectColumnData]..
+Type alias for [`SelectColumnData`]..
 
 As all databases use currently the same fields, a type alias is sufficient.
 */
 pub type ColumnSelector<'a> = SelectColumnData<'a>;
 
 /**
-Type alias for [JoinTableData].
+Type alias for [`JoinTableData`].
 
 As all databases use currently the same fields, a type alias is sufficient.
 */
@@ -55,11 +55,11 @@ pub struct DatabaseConfiguration {
     pub disable_logging: Option<bool>,
     /// Set the log level of SQL statements
     ///
-    /// In case of None, [LevelFilter::Debug] will be used.
+    /// In case of None, [`LevelFilter::Debug`] will be used.
     pub statement_log_level: Option<LevelFilter>,
     /// Log level in case of slow statements (>300 ms)
     ///
-    /// In case of None, [LevelFilter::Warn] will be used.
+    /// In case of None, [`LevelFilter::Warn`] will be used.
     pub slow_statement_log_level: Option<LevelFilter>,
 }
 
@@ -71,11 +71,11 @@ impl DatabaseConfiguration {
     - `min_connections`: 1
     - `max_connections`: 10
     - `disable_logging`: None
-    - `statement_log_level`: [Some] of [LevelFilter::Debug]
-    - `slow_statement_log_level`: [Some] of [LevelFilter::Warn]
+    - `statement_log_level`: [`Some`] of [`LevelFilter::Debug`]
+    - `slow_statement_log_level`: [`Some`] of [`LevelFilter::Warn`]
 
     **Parameter**:
-    - `driver`: [DatabaseDriver]: Configuration of the database driver.
+    - `driver`: [`DatabaseDriver`]: Configuration of the database driver.
     */
     pub fn new(driver: DatabaseDriver) -> Self {
         DatabaseConfiguration {
@@ -134,7 +134,7 @@ impl Database {
     }
 
     /**
-    Entry point for a [Transaction].
+    Entry point for a [`Transaction`].
      */
     pub async fn start_transaction(&self) -> Result<Transaction, Error> {
         internal::database::start_transaction(self).await
@@ -144,7 +144,7 @@ impl Database {
 /**
 This method is used to retrieve rows that match the provided query.
 
-It is generic over a [QueryStrategy] which specifies how and how many rows to query.
+It is generic over a [`QueryStrategy`] which specifies how and how many rows to query.
 
 **Parameter**:
 - `model`: Model to query.
@@ -152,8 +152,9 @@ It is generic over a [QueryStrategy] which specifies how and how many rows to qu
 - `joins`: Join tables expressions.
 - `conditions`: Optional conditions to apply.
 - `limit`: Optional limit / offset to apply to the query.
-    Depending on the query strategy, this is either [LimitClause] (for [All] and [Stream])
-    or a simple [u64] (for [One] and [Optional]).
+    Depending on the query strategy, this is either [`LimitClause`](rorm_sql::limit_clause::LimitClause)
+    (for [`All`] and [`Stream`](crate::executor::Stream))
+    or a simple [`u64`] (for [`One`] and [`Optional`](crate::executor::Optional)).
 - `transaction`: Optional transaction to execute the query on.
  */
 #[allow(clippy::too_many_arguments)]
@@ -242,8 +243,8 @@ pub async fn insert(
 }
 
 /// Generic implementation of:
-/// - [Database::insert]
-/// - [Database::insert_returning]
+/// - [`Database::insert`]
+/// - [`Database::insert_returning`]
 pub(crate) fn generic_insert<'result, 'db: 'result, 'post_query: 'result, Q: QueryStrategy>(
     executor: impl Executor<'db>,
     model: &str,
