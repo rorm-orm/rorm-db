@@ -57,9 +57,8 @@ pub(crate) mod utils;
 pub(crate) mod internal;
 
 pub use rorm_declaration::config::DatabaseDriver;
-pub use rorm_sql::{
-    aggregation, and, conditional, join_table, limit_clause, or, ordering, select_column, value,
-};
+/// Re-export [rorm-sql](rorm_sql)
+pub use rorm_sql as sql;
 
 pub use crate::{
     database::{Database, DatabaseConfiguration},
