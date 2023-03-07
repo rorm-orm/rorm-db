@@ -1,31 +1,77 @@
 //! Error type to simplify propagating different error types.
 
+use std::{error, fmt};
+
 #[cfg(feature = "sqlx")]
 use sqlx::Error as SqlxError;
 
 #[cfg(not(feature = "sqlx"))]
-/// Represent all ways a method can fail within SQLx.
-///
-/// I.e. not at all since sqlx isn't a dependency.
-#[derive(Debug, thiserror::Error)]
-pub enum SqlxError {}
+const _: () = {
+    /// Represent all ways a method can fail within SQLx.
+    ///
+    /// I.e. not at all since sqlx isn't a dependency.
+    #[derive(Debug)]
+    pub enum SqlxError {}
+
+    impl error::Error for Error {}
+
+    impl fmt::Display for Error {
+        fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            unreachable!("You shouldn't be able to get an instance of an empty enum!");
+        }
+    }
+};
 
 /// Error type to simplify propagating different error types.
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum Error {
     /// Error returned from Sqlx
-    #[error("sqlx error: {0}")]
-    SqlxError(#[from] SqlxError),
+    SqlxError(SqlxError),
 
     /// Error for pointing to configuration errors.
-    #[error("configuration error: {0}")]
     ConfigurationError(String),
 
     /// DecodeError
-    #[error("decode error: {0}")]
     DecodeError(String),
 
     /// SQL building error
-    #[error("sql error: {0}")]
-    SQLBuildError(#[from] rorm_sql::error::Error),
+    SQLBuildError(rorm_sql::error::Error),
+}
+
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Error::SqlxError(source) => Some(source),
+            Error::ConfigurationError(_) => None,
+            Error::DecodeError(_) => None,
+            Error::SQLBuildError(source) => Some(source),
+        }
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Error::SqlxError(error) => write!(f, "sqlx error: {error}"),
+            Error::ConfigurationError(error) => write!(f, "configuration error: {error}",),
+            Error::DecodeError(error) => {
+                write!(f, "decode error: {error}")
+            }
+            Error::SQLBuildError(error) => {
+                write!(f, "sql error: {error}")
+            }
+        }
+    }
+}
+
+impl From<SqlxError> for Error {
+    fn from(source: SqlxError) -> Self {
+        Error::SqlxError(source)
+    }
+}
+
+impl From<rorm_sql::error::Error> for Error {
+    fn from(source: rorm_sql::error::Error) -> Self {
+        Error::SQLBuildError(source)
+    }
 }
