@@ -3,12 +3,14 @@
 //! Unlike sqlx's Executor which provides several separate methods for different querying strategies,
 //! our [`Executor`] has a single method which is generic using the [`QueryStrategy`] trait.
 
-use rorm_sql::value::Value;
-use rorm_sql::DBImpl;
 use std::future::Future;
 
-use crate::transaction::TransactionGuard;
-use crate::{internal, Error};
+use futures::future::BoxFuture;
+use rorm_sql::value::Value;
+use rorm_sql::DBImpl;
+
+use crate::transaction::{Transaction, TransactionGuard};
+use crate::{internal, Database, Error};
 
 /// [`QueryStrategy`] returning nothing
 ///
@@ -92,7 +94,7 @@ pub trait Executor<'executor> {
     fn dialect(&self) -> DBImpl;
 
     /// A future producing a [`TransactionGuard`] returned by [`ensure_transaction`](Executor::ensure_transaction)
-    type EnsureTransactionFuture: Future<Output = Result<TransactionGuard<'executor>, Error>>;
+    type EnsureTransactionFuture: Future<Output = Result<TransactionGuard<'executor>, Error>> + Send;
 
     /// Ensure a piece of code is run inside a transaction using a [`TransactionGuard`].
     ///
@@ -103,4 +105,47 @@ pub trait Executor<'executor> {
     /// This method solves this by producing a type which is either an owned or borrowed Transaction
     /// depending on the [`Executor`] it is called on.
     fn ensure_transaction(self) -> Self::EnsureTransactionFuture;
+}
+
+/// Choose whether to use transactions or not at runtime
+///
+/// Like a `Box<dyn Executor<'executor>>`
+pub enum DynamicExecutor<'executor> {
+    /// Use a default database connection
+    Database(&'executor Database),
+    /// Use a transaction
+    Transaction(&'executor mut Transaction),
+}
+impl<'executor> Executor<'executor> for DynamicExecutor<'executor> {
+    fn execute<'data, 'result, Q>(
+        self,
+        query: String,
+        values: Vec<Value<'data>>,
+    ) -> Q::Result<'result>
+    where
+        'executor: 'result,
+        'data: 'result,
+        Q: QueryStrategy,
+    {
+        match self {
+            DynamicExecutor::Database(db) => db.execute::<Q>(query, values),
+            DynamicExecutor::Transaction(tr) => tr.execute::<Q>(query, values),
+        }
+    }
+
+    fn dialect(&self) -> DBImpl {
+        match self {
+            DynamicExecutor::Database(db) => db.dialect(),
+            DynamicExecutor::Transaction(tr) => tr.dialect(),
+        }
+    }
+
+    type EnsureTransactionFuture = BoxFuture<'executor, Result<TransactionGuard<'executor>, Error>>;
+
+    fn ensure_transaction(self) -> Self::EnsureTransactionFuture {
+        match self {
+            DynamicExecutor::Database(db) => db.ensure_transaction(),
+            DynamicExecutor::Transaction(tr) => Box::pin(tr.ensure_transaction()),
+        }
+    }
 }

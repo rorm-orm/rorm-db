@@ -1,4 +1,4 @@
-use std::future::{ready, Future, Ready};
+use std::future::{ready, Ready};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -57,8 +57,7 @@ impl<'executor> Executor<'executor> for &'executor Database {
         self.db_impl
     }
 
-    type EnsureTransactionFuture =
-        Pin<Box<dyn Future<Output = Result<TransactionGuard<'executor>, Error>> + 'executor>>;
+    type EnsureTransactionFuture = BoxFuture<'executor, Result<TransactionGuard<'executor>, Error>>;
 
     fn ensure_transaction(self) -> Self::EnsureTransactionFuture {
         Box::pin(async move { self.start_transaction().await.map(TransactionGuard::Owned) })
