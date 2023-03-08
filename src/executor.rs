@@ -104,7 +104,8 @@ pub trait Executor<'executor> {
     ///
     /// This method solves this by producing a type which is either an owned or borrowed Transaction
     /// depending on the [`Executor`] it is called on.
-    fn ensure_transaction(self) -> Self::EnsureTransactionFuture;
+    fn ensure_transaction(self)
+        -> BoxFuture<'executor, Result<TransactionGuard<'executor>, Error>>;
 }
 
 /// Choose whether to use transactions or not at runtime

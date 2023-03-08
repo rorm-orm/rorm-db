@@ -1,9 +1,11 @@
 use std::future::Ready;
 
+use futures::future::BoxFuture;
 use futures::stream::Empty;
 use rorm_sql::value::Value;
 use rorm_sql::DBImpl;
 
+use super::no_sqlx;
 use crate::database::Database;
 use crate::error::Error;
 use crate::executor::{
@@ -11,8 +13,6 @@ use crate::executor::{
 };
 use crate::row::Row;
 use crate::transaction::Transaction;
-
-use super::no_sqlx;
 
 impl<'executor> Executor<'executor> for &'executor Database {
     fn execute<'data, 'result, Q>(
@@ -34,7 +34,9 @@ impl<'executor> Executor<'executor> for &'executor Database {
 
     type EnsureTransactionFuture = Ready<Result<TransactionGuard<'executor>, Error>>;
 
-    fn ensure_transaction(self) -> Self::EnsureTransactionFuture {
+    fn ensure_transaction(
+        self,
+    ) -> BoxFuture<'executor, Result<TransactionGuard<'executor>, Error>> {
         no_sqlx();
     }
 }
@@ -58,7 +60,9 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction<'_> {
 
     type EnsureTransactionFuture = Ready<Result<TransactionGuard<'executor>, Error>>;
 
-    fn ensure_transaction(self) -> Self::EnsureTransactionFuture {
+    fn ensure_transaction(
+        self,
+    ) -> BoxFuture<'executor, Result<TransactionGuard<'executor>, Error>> {
         no_sqlx();
     }
 }

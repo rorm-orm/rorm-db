@@ -312,7 +312,6 @@ pub async fn insert_bulk_returning(
     model: &str,
     columns: &[&str],
     rows: &[&[Value<'_>]],
-
     returning: &[&str],
 ) -> Result<Vec<Row>, Error> {
     let mut guard = executor.ensure_transaction().await?;
@@ -399,4 +398,18 @@ pub async fn update<'post_build>(
     executor
         .execute::<AffectedRows>(query_string, bind_params)
         .await
+}
+
+#[cfg(test)]
+mod test {
+    use futures::future::BoxFuture;
+
+    use crate::{database, Database, Error, Row};
+
+    #[allow(unused)]
+    fn should_compile(db: &'static Database) {
+        let fut = database::insert_bulk_returning(db, "", &[], &[], &[]);
+        let fut: BoxFuture<'_, Result<Vec<Row>, Error>> = Box::pin(fut);
+        drop(fut);
+    }
 }

@@ -34,8 +34,10 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction {
 
     type EnsureTransactionFuture = Ready<Result<TransactionGuard<'executor>, Error>>;
 
-    fn ensure_transaction(self) -> Self::EnsureTransactionFuture {
-        ready(Ok(TransactionGuard::Borrowed(self)))
+    fn ensure_transaction(
+        self,
+    ) -> BoxFuture<'executor, Result<TransactionGuard<'executor>, Error>> {
+        Box::pin(ready(Ok(TransactionGuard::Borrowed(self))))
     }
 }
 
@@ -59,7 +61,9 @@ impl<'executor> Executor<'executor> for &'executor Database {
 
     type EnsureTransactionFuture = BoxFuture<'executor, Result<TransactionGuard<'executor>, Error>>;
 
-    fn ensure_transaction(self) -> Self::EnsureTransactionFuture {
+    fn ensure_transaction(
+        self,
+    ) -> BoxFuture<'executor, Result<TransactionGuard<'executor>, Error>> {
         Box::pin(async move { self.start_transaction().await.map(TransactionGuard::Owned) })
     }
 }
