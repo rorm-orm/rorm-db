@@ -22,7 +22,7 @@ rorm-declaration = { version = "~0.3", path = "../rorm-declaration" }
 futures = { version = "~0.3" }
 
 # Allow wrapping futures and streams
-pin-project = { version = "~1.0" }
+pin-project = { version = "~1" }
 
 # SQL executor. Optional because it requires a runtime and a TLS implementation.
 # A compile error will be thrown if no runtime is chosen.
@@ -36,7 +36,7 @@ aliasable = { version = "~0.1" }
 log = { version = "~0.4" }
 
 # Serialization
-serde = { version = "~1.0" }
+serde = { version = "~1" }
 
 [package.metadata.docs.rs]
 features = ["tokio-rustls"]
