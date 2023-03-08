@@ -1,9 +1,3 @@
-Since 0.6.0
+Since 0.7.0
 -----------
 
-- Removed Transaction's lifetime
-- Refactored `query`, `insert_...`, `update`, `delete` to work on generic
-  `Executor` instead of `Database`
-- Re-export rorm_sql as sql instead of bloating the whole namespace by using *
-- Updated rorm_sql to 0.6
-- Implemented DynamicExecutor
