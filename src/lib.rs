@@ -45,6 +45,7 @@ pub mod error;
 
 pub(crate) mod query_type;
 
+pub mod choice;
 pub mod executor;
 pub mod row;
 pub mod transaction;
@@ -60,8 +61,6 @@ pub use rorm_declaration::config::DatabaseDriver;
 /// Re-export [rorm-sql](rorm_sql)
 pub use rorm_sql as sql;
 
-pub use crate::{
-    database::{Database, DatabaseConfiguration},
-    error::Error,
-    row::Row,
-};
+pub use crate::database::{Database, DatabaseConfiguration};
+pub use crate::error::Error;
+pub use crate::row::Row;
