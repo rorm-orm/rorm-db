@@ -12,7 +12,7 @@ use crate::executor::{
     AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, QueryStrategyResult, Stream,
 };
 use crate::row::Row;
-use crate::transaction::Transaction;
+use crate::transaction::{Transaction, TransactionGuard};
 
 impl<'executor> Executor<'executor> for &'executor Database {
     fn execute<'data, 'result, Q>(
@@ -40,7 +40,7 @@ impl<'executor> Executor<'executor> for &'executor Database {
         no_sqlx();
     }
 }
-impl<'executor> Executor<'executor> for &'executor mut Transaction<'_> {
+impl<'executor> Executor<'executor> for &'executor mut Transaction {
     fn execute<'data, 'result, Q>(
         self,
         _query: String,
