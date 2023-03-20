@@ -2,41 +2,45 @@
 //!
 //! Rust specific features will be exposed through the `rorm` crate.
 //! `rorm-lib` implements C bindings for this crate.
+#![cfg_attr(all(doc, CHANNEL_NIGHTLY), feature(doc_auto_cfg))]
 #![warn(missing_docs)]
 
-#[cfg(any(
-    all(
-        feature = "actix-rustls",
-        any(
+#[cfg(all(
+    not(cfg_auto_docs),
+    any(
+        all(
+            feature = "actix-rustls",
+            any(
+                feature = "actix-native-tls",
+                feature = "tokio-native-tls",
+                feature = "tokio-rustls",
+                feature = "async-std-native-tls",
+                feature = "async-std-rustls"
+            )
+        ),
+        all(
             feature = "actix-native-tls",
-            feature = "tokio-native-tls",
+            any(
+                feature = "tokio-native-tls",
+                feature = "tokio-rustls",
+                feature = "async-std-native-tls",
+                feature = "async-std-rustls"
+            )
+        ),
+        all(
             feature = "tokio-rustls",
-            feature = "async-std-native-tls",
-            feature = "async-std-rustls"
-        )
-    ),
-    all(
-        feature = "actix-native-tls",
-        any(
+            any(
+                feature = "tokio-native-tls",
+                feature = "async-std-native-tls",
+                feature = "async-std-rustls"
+            )
+        ),
+        all(
             feature = "tokio-native-tls",
-            feature = "tokio-rustls",
-            feature = "async-std-native-tls",
-            feature = "async-std-rustls"
-        )
-    ),
-    all(
-        feature = "tokio-rustls",
-        any(
-            feature = "tokio-native-tls",
-            feature = "async-std-native-tls",
-            feature = "async-std-rustls"
-        )
-    ),
-    all(
-        feature = "tokio-native-tls",
-        any(feature = "async-std-native-tls", feature = "async-std-rustls")
-    ),
-    all(feature = "async-std-native-tls", feature = "async-std-rustls")
+            any(feature = "async-std-native-tls", feature = "async-std-rustls")
+        ),
+        all(feature = "async-std-native-tls", feature = "async-std-rustls")
+    )
 ))]
 compile_error!("Using multiple runtime / tls configurations at the same time is not allowed");
 

@@ -38,8 +38,11 @@ log = { version = "~0.4" }
 # Serialization
 serde = { version = "~1" }
 
+[build-dependencies]
+rustc_version = "0.4.0"
+
 [package.metadata.docs.rs]
-features = ["tokio-rustls"]
+features = ["default"]
 
 [features]
 default = [
