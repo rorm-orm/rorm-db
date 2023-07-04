@@ -1,3 +1,4 @@
 Since 0.8.1
 -----------
-
+- Reimplemented QueryWrapper which is a semi-internal self-referencing struct
+  -> Removed ouroboros and aliasable from dependencies

@@ -28,10 +28,6 @@ pin-project = { version = "~1" }
 # A compile error will be thrown if no runtime is chosen.
 sqlx = { version = "~0.6", optional = true }
 
-# Allow self referencing structs
-ouroboros = { version = "~0.15" }
-aliasable = { version = "~0.1" }
-
 # Logging facade
 log = { version = "~0.4" }
 

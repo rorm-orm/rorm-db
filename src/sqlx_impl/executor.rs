@@ -2,7 +2,6 @@ use std::future::{ready, Ready};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use aliasable::string::AliasableString;
 use futures::future::{self, BoxFuture, FutureExt, TryFutureExt};
 use futures::stream::{self, BoxStream, TryCollect, TryFilterMap, TryStreamExt};
 use rorm_sql::value::Value;
@@ -12,7 +11,7 @@ use crate::executor::{
     AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, QueryStrategyResult, Stream,
 };
 use crate::transaction::{Transaction, TransactionGuard};
-use crate::{utils, Database, Error, Row};
+use crate::{Database, Error, Row};
 
 impl<'executor> Executor<'executor> for &'executor mut Transaction {
     fn execute<'data, 'result, Q>(
@@ -69,15 +68,13 @@ impl<'executor> Executor<'executor> for &'executor Database {
 }
 
 pub trait QueryStrategyImpl: QueryStrategyResult {
-    fn execute<'executor, 'data, 'result, E>(
+    fn execute<'query, E>(
         executor: E,
         query: String,
-        values: Vec<Value<'data>>,
-    ) -> Self::Result<'result>
+        values: Vec<Value<'query>>,
+    ) -> Self::Result<'query>
     where
-        'executor: 'result,
-        'data: 'result,
-        E: sqlx::Executor<'executor, Database = sqlx::Any>;
+        E: sqlx::Executor<'query, Database = sqlx::Any>;
 }
 
 type AnyQuery<'q> = sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments<'q>>;
@@ -89,33 +86,62 @@ pub type QueryFuture<T> = QueryWrapper<T>;
 
 pub type QueryStream<T> = QueryWrapper<T>;
 
-#[doc(hidden)]
-#[pin_project::pin_project]
-pub struct QueryWrapper<T> {
-    #[allow(dead_code)]
-    query_string: AliasableString,
-    #[pin]
-    wrapped: T,
-}
-impl<T> QueryWrapper<T> {
-    fn new<'executor, 'data>(
-        query: String,
-        values: Vec<Value<'data>>,
-        execute: impl FnOnce(AnyQuery<'data>) -> T,
-    ) -> Self {
-        let query_string = AliasableString::from_unique(query);
-        let query: &str = &query_string;
-        let query: &'data str = unsafe { std::mem::transmute(query) };
-        let mut query = sqlx::query(query);
-        for x in values {
-            query = utils::bind_param(query, x);
+pub use query_wrapper::QueryWrapper;
+/// Private module to contain the internals behind a sound api
+mod query_wrapper {
+    use std::pin::Pin;
+
+    use rorm_sql::value::Value;
+
+    use crate::internal::executor::AnyQuery;
+
+    #[doc(hidden)]
+    #[pin_project::pin_project]
+    pub struct QueryWrapper<T> {
+        #[pin]
+        wrapped: T,
+        #[allow(dead_code)] // is used via a reference inside T
+        query_string: String,
+    }
+
+    impl<'query, T: 'query> QueryWrapper<T> {
+        /// Basic constructor which only performs the unsafe lifetime extension to be tested by miri
+        pub(crate) fn new_basic(string: String, wrapped: impl FnOnce(&'query str) -> T) -> Self {
+            let slice: &str = string.as_str();
+
+            // SAFETY: The heap allocation won't be dropped or moved
+            //         until `wrapped` which contains this reference is dropped.
+            let slice: &'query str = unsafe { std::mem::transmute(slice) };
+
+            Self {
+                query_string: string,
+                wrapped: wrapped(slice),
+            }
         }
-        Self {
-            query_string,
-            wrapped: execute(query),
+
+        pub fn new<'data: 'query>(
+            query_string: String,
+            values: Vec<Value<'data>>,
+            execute: impl FnOnce(AnyQuery<'query>) -> T,
+        ) -> Self {
+            Self::new_basic(query_string, move |query_string| {
+                let mut query = sqlx::query(query_string);
+                for x in values {
+                    query = crate::utils::bind_param(query, x);
+                }
+                execute(query)
+            })
+        }
+    }
+
+    impl<T> QueryWrapper<T> {
+        /// Project a [`Pin`] onto the `wrapped` field
+        pub fn project_wrapped(self: Pin<&mut Self>) -> Pin<&mut T> {
+            self.project().wrapped
         }
     }
 }
+
 impl<F> future::Future for QueryFuture<F>
 where
     F: future::Future,
@@ -123,7 +149,7 @@ where
     type Output = F::Output;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        self.project().wrapped.poll(cx)
+        self.project_wrapped().poll(cx)
     }
 }
 impl<S> stream::Stream for QueryStream<S>
@@ -133,15 +159,15 @@ where
     type Item = S::Item;
 
     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        self.project().wrapped.poll_next(cx)
+        self.project_wrapped().poll_next(cx)
     }
 }
 
 impl QueryStrategyResult for Nothing {
-    type Result<'result> = QueryFuture<
+    type Result<'query> = QueryFuture<
         future::MapOk<
             TryCollect<
-                stream::ErrInto<stream::MapOk<FetchMany<'result>, fn(AnyEither) -> ()>, Error>,
+                stream::ErrInto<stream::MapOk<FetchMany<'query>, fn(AnyEither) -> ()>, Error>,
                 Vec<()>,
             >,
             fn(Vec<()>) -> (),
@@ -150,22 +176,20 @@ impl QueryStrategyResult for Nothing {
 }
 
 impl QueryStrategyImpl for Nothing {
-    fn execute<'executor, 'data, 'result, E>(
+    fn execute<'query, E>(
         executor: E,
         query: String,
-        values: Vec<Value<'data>>,
-    ) -> Self::Result<'result>
+        values: Vec<Value<'query>>,
+    ) -> Self::Result<'query>
     where
-        'executor: 'result,
-        'data: 'result,
-        E: sqlx::Executor<'executor, Database = sqlx::Any>,
+        E: sqlx::Executor<'query, Database = sqlx::Any>,
     {
         fn dump<T>(_: T) {}
         let dump_either: fn(AnyEither) -> () = dump;
         let dump_vec: fn(Vec<()>) -> () = dump;
         QueryFuture::new(query, values, |query| {
             executor
-                .fetch_many::<'result, 'data, AnyQuery<'data>>(query)
+                .fetch_many(query)
                 .map_ok(dump_either)
                 .err_into()
                 .try_collect()
@@ -175,10 +199,10 @@ impl QueryStrategyImpl for Nothing {
 }
 
 impl QueryStrategyResult for AffectedRows {
-    type Result<'result> = QueryFuture<
+    type Result<'query> = QueryFuture<
         future::ErrInto<
             stream::TryFold<
-                FetchMany<'result>,
+                FetchMany<'query>,
                 Ready<Result<u64, sqlx::Error>>,
                 u64,
                 fn(u64, AnyEither) -> Ready<Result<u64, sqlx::Error>>,
@@ -188,15 +212,13 @@ impl QueryStrategyResult for AffectedRows {
     >;
 }
 impl QueryStrategyImpl for AffectedRows {
-    fn execute<'executor, 'data, 'result, E>(
+    fn execute<'query, E>(
         executor: E,
         query: String,
-        values: Vec<Value<'data>>,
-    ) -> Self::Result<'result>
+        values: Vec<Value<'query>>,
+    ) -> Self::Result<'query>
     where
-        'executor: 'result,
-        'data: 'result,
-        E: sqlx::Executor<'executor, Database = sqlx::Any>,
+        E: sqlx::Executor<'query, Database = sqlx::Any>,
     {
         fn add_rows_affected(sum: u64, either: AnyEither) -> Ready<Result<u64, sqlx::Error>> {
             std::future::ready(Ok(match either {
@@ -208,7 +230,7 @@ impl QueryStrategyImpl for AffectedRows {
             add_rows_affected;
         QueryFuture::new(query, values, |query| {
             executor
-                .fetch_many::<'result, 'data, AnyQuery<'data>>(query)
+                .fetch_many(query)
                 .try_fold(0, add_rows_affected)
                 .err_into()
         })
@@ -216,10 +238,10 @@ impl QueryStrategyImpl for AffectedRows {
 }
 
 impl QueryStrategyResult for One {
-    type Result<'result> = QueryFuture<
+    type Result<'query> = QueryFuture<
         future::ErrInto<
             future::Map<
-                FetchOptional<'result>,
+                FetchOptional<'query>,
                 fn(Result<Option<sqlx::any::AnyRow>, sqlx::Error>) -> Result<Row, sqlx::Error>,
             >,
             Error,
@@ -227,15 +249,13 @@ impl QueryStrategyResult for One {
     >;
 }
 impl QueryStrategyImpl for One {
-    fn execute<'executor, 'data, 'result, E>(
+    fn execute<'query, E>(
         executor: E,
         query: String,
-        values: Vec<Value<'data>>,
-    ) -> Self::Result<'result>
+        values: Vec<Value<'query>>,
+    ) -> Self::Result<'query>
     where
-        'executor: 'result,
-        'data: 'result,
-        E: sqlx::Executor<'executor, Database = sqlx::Any>,
+        E: sqlx::Executor<'query, Database = sqlx::Any>,
     {
         fn convert(
             result: Result<Option<sqlx::any::AnyRow>, sqlx::Error>,
@@ -252,23 +272,21 @@ impl QueryStrategyImpl for One {
 }
 
 impl QueryStrategyResult for Optional {
-    type Result<'result> = QueryFuture<
+    type Result<'query> = QueryFuture<
         future::ErrInto<
-            future::MapOk<FetchOptional<'result>, fn(Option<sqlx::any::AnyRow>) -> Option<Row>>,
+            future::MapOk<FetchOptional<'query>, fn(Option<sqlx::any::AnyRow>) -> Option<Row>>,
             Error,
         >,
     >;
 }
 impl QueryStrategyImpl for Optional {
-    fn execute<'executor, 'data, 'result, E>(
+    fn execute<'query, E>(
         executor: E,
         query: String,
-        values: Vec<Value<'data>>,
-    ) -> Self::Result<'result>
+        values: Vec<Value<'query>>,
+    ) -> Self::Result<'query>
     where
-        'executor: 'result,
-        'data: 'result,
-        E: sqlx::Executor<'executor, Database = sqlx::Any>,
+        E: sqlx::Executor<'query, Database = sqlx::Any>,
     {
         fn convert(option: Option<sqlx::any::AnyRow>) -> Option<Row> {
             option.map(Row)
@@ -292,11 +310,11 @@ static TRY_FILTER_MAP: fn(AnyEither) -> Ready<Result<Option<Row>, sqlx::Error>> 
 };
 
 impl QueryStrategyResult for All {
-    type Result<'result> = QueryFuture<
+    type Result<'query> = QueryFuture<
         TryCollect<
             stream::ErrInto<
                 TryFilterMap<
-                    FetchMany<'result>,
+                    FetchMany<'query>,
                     Ready<Result<Option<Row>, sqlx::Error>>,
                     fn(AnyEither) -> Ready<Result<Option<Row>, sqlx::Error>>,
                 >,
@@ -307,15 +325,13 @@ impl QueryStrategyResult for All {
     >;
 }
 impl QueryStrategyImpl for All {
-    fn execute<'executor, 'data, 'result, E>(
+    fn execute<'query, E>(
         executor: E,
         query: String,
-        values: Vec<Value<'data>>,
-    ) -> Self::Result<'result>
+        values: Vec<Value<'query>>,
+    ) -> Self::Result<'query>
     where
-        'executor: 'result,
-        'data: 'result,
-        E: sqlx::Executor<'executor, Database = sqlx::Any>,
+        E: sqlx::Executor<'query, Database = sqlx::Any>,
     {
         QueryFuture::new(query, values, |query| {
             executor
@@ -328,10 +344,10 @@ impl QueryStrategyImpl for All {
 }
 
 impl QueryStrategyResult for Stream {
-    type Result<'result> = QueryStream<
+    type Result<'query> = QueryStream<
         stream::ErrInto<
             TryFilterMap<
-                FetchMany<'result>,
+                FetchMany<'query>,
                 Ready<Result<Option<Row>, sqlx::Error>>,
                 fn(AnyEither) -> Ready<Result<Option<Row>, sqlx::Error>>,
             >,
@@ -340,15 +356,13 @@ impl QueryStrategyResult for Stream {
     >;
 }
 impl QueryStrategyImpl for Stream {
-    fn execute<'executor, 'data, 'result, E>(
+    fn execute<'query, E>(
         executor: E,
         query: String,
-        values: Vec<Value<'data>>,
-    ) -> Self::Result<'result>
+        values: Vec<Value<'query>>,
+    ) -> Self::Result<'query>
     where
-        'executor: 'result,
-        'data: 'result,
-        E: sqlx::Executor<'executor, Database = sqlx::Any>,
+        E: sqlx::Executor<'query, Database = sqlx::Any>,
     {
         QueryStream::new(query, values, |query| {
             executor
@@ -356,5 +370,27 @@ impl QueryStrategyImpl for Stream {
                 .try_filter_map(TRY_FILTER_MAP)
                 .err_into()
         })
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::internal::executor::QueryWrapper;
+
+    /// Run this test with miri
+    ///
+    /// If the drop order of [`QueryWrapper`]'s fields is incorrect,
+    /// miri will complain about a use-after-free.
+    #[test]
+    fn test_drop_order() {
+        struct BorrowStr<'a>(&'a str);
+        impl<'a> Drop for BorrowStr<'a> {
+            fn drop(&mut self) {
+                // Use the borrowed string.
+                // If it were already dropped, miri would detect it.
+                println!("{}", self.0);
+            }
+        }
+        let w = QueryWrapper::new_basic(format!("Hello World"), BorrowStr);
     }
 }
