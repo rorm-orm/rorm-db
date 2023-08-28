@@ -1,7 +1,8 @@
+use crate::internal::any::AnyTransaction;
 use crate::transaction::Transaction;
 use crate::Error;
 
-pub(crate) type Impl = sqlx::Transaction<'static, sqlx::Any>;
+pub(crate) type Impl = AnyTransaction;
 
 /// Implementation of [Transaction::commit]
 pub(crate) async fn commit(transaction: Transaction) -> Result<(), Error> {

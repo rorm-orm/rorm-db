@@ -26,7 +26,7 @@ pin-project = { version = "~1" }
 
 # SQL executor. Optional because it requires a runtime and a TLS implementation.
 # A compile error will be thrown if no runtime is chosen.
-sqlx = { version = "~0.6", optional = true }
+sqlx = { version = "~0.7", optional = true }
 
 # Logging facade
 log = { version = "~0.4" }
@@ -80,16 +80,6 @@ async-std-native-tls = [
 async-std-rustls = [
     "sqlx/runtime-async-std-rustls",
     "async-std",
-]
-
-actix = []
-actix-native-tls = [
-    "sqlx/runtime-actix-native-tls",
-    "actix"
-]
-actix-rustls = [
-    "sqlx/runtime-actix-rustls",
-    "actix"
 ]
 
 tokio = []

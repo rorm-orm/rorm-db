@@ -28,14 +28,14 @@ impl From<internal::row::Impl> for Row {
 
 /// Something which can be decoded from a [`Row`]'s cell.
 #[cfg(feature = "sqlx")]
-pub trait Decode<'r>: sqlx::Type<sqlx::Any> + sqlx::Decode<'r, sqlx::Any> {}
+pub trait Decode<'r>: internal::any::AnyType + internal::any::AnyDecode<'r> {}
 /// Something which can be decoded from a [`Row`]'s cell.
 #[cfg(not(feature = "sqlx"))]
 pub trait Decode<'r> {}
 
 /// Something which can be used to index a [`Row`]'s cells.
 #[cfg(feature = "sqlx")]
-pub trait RowIndex: sqlx::ColumnIndex<sqlx::any::AnyRow> {}
+pub trait RowIndex: internal::any::AnyColumnIndex {}
 /// Something which can be used to index a [`Row`]'s cells.
 #[cfg(not(feature = "sqlx"))]
 pub trait RowIndex {}
@@ -46,8 +46,8 @@ impl<T: for<'r> Decode<'r>> DecodeOwned for T {}
 
 #[cfg(feature = "sqlx")]
 const _: () = {
-    impl<'r, T: sqlx::Type<sqlx::Any> + sqlx::Decode<'r, sqlx::Any>> Decode<'r> for T {}
-    impl<T: sqlx::ColumnIndex<sqlx::any::AnyRow>> RowIndex for T {}
+    impl<'r, T: internal::any::AnyType + internal::any::AnyDecode<'r>> Decode<'r> for T {}
+    impl<T: internal::any::AnyColumnIndex> RowIndex for T {}
 };
 #[cfg(not(feature = "sqlx"))]
 const _: () = {
