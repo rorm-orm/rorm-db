@@ -1,6 +1,6 @@
-use std::ops::DerefMut;
 use std::time::Duration;
 
+use futures::TryStreamExt;
 use log::{debug, LevelFilter};
 use rorm_declaration::config::DatabaseDriver;
 use rorm_sql::value::Value;
@@ -12,7 +12,7 @@ use sqlx::ConnectOptions;
 
 use crate::database::{Database, DatabaseConfiguration};
 use crate::error::Error;
-use crate::internal::any::{AnyPool, AnyQuery, AnyRow, AnyTransaction};
+use crate::internal::any::{AnyExecutor, AnyPool};
 use crate::row::Row;
 use crate::transaction::Transaction;
 use crate::utils;
@@ -161,77 +161,24 @@ pub async fn raw_sql<'a>(
 ) -> Result<Vec<Row>, Error> {
     debug!("SQL: {}", query_string);
 
-    let mut query = db.pool.query(query_string);
+    let mut query = if let Some(transaction) = transaction {
+        transaction.tx.query(query_string)
+    } else {
+        db.pool.query(query_string)
+    };
+
     if let Some(params) = bind_params {
-        for x in params {
-            query = utils::bind_param(query, *x);
+        for param in params {
+            utils::bind_param(&mut query, *param);
         }
     }
 
-    let result = match (&db.pool, transaction.map(|tr| &mut tr.tx), query) {
-        (AnyPool::Postgres(pool), None, AnyQuery::Postgres(query)) => {
-            query.fetch_all(pool).await.map(|vector| {
-                vector
-                    .into_iter()
-                    .map(AnyRow::Postgres)
-                    .map(Row::from)
-                    .collect()
-            })
-        }
-
-        (AnyPool::MySql(pool), None, AnyQuery::MySql(query)) => {
-            query.fetch_all(pool).await.map(|vector| {
-                vector
-                    .into_iter()
-                    .map(AnyRow::MySql)
-                    .map(Row::from)
-                    .collect()
-            })
-        }
-
-        (AnyPool::Sqlite(pool), None, AnyQuery::Sqlite(query)) => {
-            query.fetch_all(pool).await.map(|vector| {
-                vector
-                    .into_iter()
-                    .map(AnyRow::Sqlite)
-                    .map(Row::from)
-                    .collect()
-            })
-        }
-
-        (_, Some(AnyTransaction::Postgres(tx)), AnyQuery::Postgres(query)) => {
-            query.fetch_all(tx.deref_mut()).await.map(|vector| {
-                vector
-                    .into_iter()
-                    .map(AnyRow::Postgres)
-                    .map(Row::from)
-                    .collect()
-            })
-        }
-
-        (_, Some(AnyTransaction::MySql(tx)), AnyQuery::MySql(query)) => {
-            query.fetch_all(tx.deref_mut()).await.map(|vector| {
-                vector
-                    .into_iter()
-                    .map(AnyRow::MySql)
-                    .map(Row::from)
-                    .collect()
-            })
-        }
-
-        (_, Some(AnyTransaction::Sqlite(tx)), AnyQuery::Sqlite(query)) => {
-            query.fetch_all(tx.deref_mut()).await.map(|vector| {
-                vector
-                    .into_iter()
-                    .map(AnyRow::Sqlite)
-                    .map(Row::from)
-                    .collect()
-            })
-        }
-
-        (_, _, _) => panic!(),
-    };
-    result.map_err(Error::SqlxError)
+    query
+        .fetch_many()
+        .try_filter_map(|either| async { Ok(either.right().map(Row)) })
+        .err_into()
+        .try_collect()
+        .await
 }
 
 /// Implementation of [Database::start_transaction]

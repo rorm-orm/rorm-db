@@ -10,6 +10,7 @@ use rorm_sql::DBImpl;
 use crate::executor::{
     AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, QueryStrategyResult, Stream,
 };
+use crate::internal::any::{AnyExecutor, AnyQueryResult, AnyRow};
 use crate::transaction::{Transaction, TransactionGuard};
 use crate::{Database, Error, Row};
 
@@ -74,26 +75,23 @@ pub trait QueryStrategyImpl: QueryStrategyResult {
         values: Vec<Value<'query>>,
     ) -> Self::Result<'query>
     where
-        E: sqlx::Executor<'query, Database = sqlx::Any>;
+        E: AnyExecutor<'query>;
 }
 
-type AnyQuery<'q> = sqlx::query::Query<'q, sqlx::Any, sqlx::any::AnyArguments<'q>>;
-type AnyEither = sqlx::Either<sqlx::any::AnyQueryResult, sqlx::any::AnyRow>;
+type AnyEither = sqlx::Either<AnyQueryResult, AnyRow>;
 type FetchMany<'a> = BoxStream<'a, Result<AnyEither, sqlx::Error>>;
-type FetchOptional<'a> = BoxFuture<'a, Result<Option<sqlx::any::AnyRow>, sqlx::Error>>;
 
 pub type QueryFuture<T> = QueryWrapper<T>;
-
 pub type QueryStream<T> = QueryWrapper<T>;
-
 pub use query_wrapper::QueryWrapper;
+
 /// Private module to contain the internals behind a sound api
 mod query_wrapper {
     use std::pin::Pin;
 
     use rorm_sql::value::Value;
 
-    use crate::internal::executor::AnyQuery;
+    use crate::internal::any::{AnyExecutor, AnyQuery};
 
     #[doc(hidden)]
     #[pin_project::pin_project]
@@ -120,14 +118,15 @@ mod query_wrapper {
         }
 
         pub fn new<'data: 'query>(
+            executor: impl AnyExecutor<'query>,
             query_string: String,
             values: Vec<Value<'data>>,
             execute: impl FnOnce(AnyQuery<'query>) -> T,
         ) -> Self {
             Self::new_basic(query_string, move |query_string| {
-                let mut query = sqlx::query(query_string);
-                for x in values {
-                    query = crate::utils::bind_param(query, x);
+                let mut query = executor.query(query_string);
+                for value in values {
+                    crate::utils::bind_param(&mut query, value);
                 }
                 execute(query)
             })
@@ -182,14 +181,14 @@ impl QueryStrategyImpl for Nothing {
         values: Vec<Value<'query>>,
     ) -> Self::Result<'query>
     where
-        E: sqlx::Executor<'query, Database = sqlx::Any>,
+        E: AnyExecutor<'query>,
     {
         fn dump<T>(_: T) {}
         let dump_either: fn(AnyEither) -> () = dump;
         let dump_vec: fn(Vec<()>) -> () = dump;
-        QueryFuture::new(query, values, |query| {
-            executor
-                .fetch_many(query)
+        QueryFuture::new(executor, query, values, |query| {
+            query
+                .fetch_many()
                 .map_ok(dump_either)
                 .err_into()
                 .try_collect()
@@ -199,17 +198,7 @@ impl QueryStrategyImpl for Nothing {
 }
 
 impl QueryStrategyResult for AffectedRows {
-    type Result<'query> = QueryFuture<
-        future::ErrInto<
-            stream::TryFold<
-                FetchMany<'query>,
-                Ready<Result<u64, sqlx::Error>>,
-                u64,
-                fn(u64, AnyEither) -> Ready<Result<u64, sqlx::Error>>,
-            >,
-            Error,
-        >,
-    >;
+    type Result<'query> = QueryFuture<BoxFuture<'query, Result<u64, Error>>>;
 }
 impl QueryStrategyImpl for AffectedRows {
     fn execute<'query, E>(
@@ -218,35 +207,16 @@ impl QueryStrategyImpl for AffectedRows {
         values: Vec<Value<'query>>,
     ) -> Self::Result<'query>
     where
-        E: sqlx::Executor<'query, Database = sqlx::Any>,
+        E: AnyExecutor<'query>,
     {
-        fn add_rows_affected(sum: u64, either: AnyEither) -> Ready<Result<u64, sqlx::Error>> {
-            std::future::ready(Ok(match either {
-                AnyEither::Left(result) => sum + result.rows_affected(),
-                AnyEither::Right(_) => sum,
-            }))
-        }
-        let add_rows_affected: fn(u64, AnyEither) -> Ready<Result<u64, sqlx::Error>> =
-            add_rows_affected;
-        QueryFuture::new(query, values, |query| {
-            executor
-                .fetch_many(query)
-                .try_fold(0, add_rows_affected)
-                .err_into()
+        QueryFuture::new(executor, query, values, |query| {
+            (async move { Ok(query.fetch_affected_rows().await?) }).boxed()
         })
     }
 }
 
 impl QueryStrategyResult for One {
-    type Result<'query> = QueryFuture<
-        future::ErrInto<
-            future::Map<
-                FetchOptional<'query>,
-                fn(Result<Option<sqlx::any::AnyRow>, sqlx::Error>) -> Result<Row, sqlx::Error>,
-            >,
-            Error,
-        >,
-    >;
+    type Result<'query> = QueryFuture<BoxFuture<'query, Result<Row, Error>>>;
 }
 impl QueryStrategyImpl for One {
     fn execute<'query, E>(
@@ -255,29 +225,22 @@ impl QueryStrategyImpl for One {
         values: Vec<Value<'query>>,
     ) -> Self::Result<'query>
     where
-        E: sqlx::Executor<'query, Database = sqlx::Any>,
+        E: AnyExecutor<'query>,
     {
-        fn convert(
-            result: Result<Option<sqlx::any::AnyRow>, sqlx::Error>,
-        ) -> Result<Row, sqlx::Error> {
-            result.and_then(|row| row.map(Row).ok_or(sqlx::Error::RowNotFound))
-        }
-        let convert: fn(
-            Result<Option<sqlx::any::AnyRow>, sqlx::Error>,
-        ) -> Result<Row, sqlx::Error> = convert;
-        QueryFuture::new(query, values, |query| {
-            executor.fetch_optional(query).map(convert).err_into()
+        QueryFuture::new(executor, query, values, |query| {
+            (async move {
+                Ok(Row(query
+                    .fetch_optional()
+                    .await?
+                    .ok_or(sqlx::Error::RowNotFound)?))
+            })
+            .boxed()
         })
     }
 }
 
 impl QueryStrategyResult for Optional {
-    type Result<'query> = QueryFuture<
-        future::ErrInto<
-            future::MapOk<FetchOptional<'query>, fn(Option<sqlx::any::AnyRow>) -> Option<Row>>,
-            Error,
-        >,
-    >;
+    type Result<'query> = QueryFuture<BoxFuture<'query, Result<Option<Row>, Error>>>;
 }
 impl QueryStrategyImpl for Optional {
     fn execute<'query, E>(
@@ -286,14 +249,10 @@ impl QueryStrategyImpl for Optional {
         values: Vec<Value<'query>>,
     ) -> Self::Result<'query>
     where
-        E: sqlx::Executor<'query, Database = sqlx::Any>,
+        E: AnyExecutor<'query>,
     {
-        fn convert(option: Option<sqlx::any::AnyRow>) -> Option<Row> {
-            option.map(Row)
-        }
-        let convert: fn(Option<sqlx::any::AnyRow>) -> Option<Row> = convert;
-        QueryFuture::new(query, values, |query| {
-            executor.fetch_optional(query).map_ok(convert).err_into()
+        QueryFuture::new(executor, query, values, |query| {
+            (async move { Ok(query.fetch_optional().await?.map(Row)) }).boxed()
         })
     }
 }
@@ -310,19 +269,7 @@ static TRY_FILTER_MAP: fn(AnyEither) -> Ready<Result<Option<Row>, sqlx::Error>> 
 };
 
 impl QueryStrategyResult for All {
-    type Result<'query> = QueryFuture<
-        TryCollect<
-            stream::ErrInto<
-                TryFilterMap<
-                    FetchMany<'query>,
-                    Ready<Result<Option<Row>, sqlx::Error>>,
-                    fn(AnyEither) -> Ready<Result<Option<Row>, sqlx::Error>>,
-                >,
-                Error,
-            >,
-            Vec<Row>,
-        >,
-    >;
+    type Result<'query> = QueryFuture<BoxFuture<'query, Result<Vec<Row>, Error>>>;
 }
 impl QueryStrategyImpl for All {
     fn execute<'query, E>(
@@ -331,14 +278,10 @@ impl QueryStrategyImpl for All {
         values: Vec<Value<'query>>,
     ) -> Self::Result<'query>
     where
-        E: sqlx::Executor<'query, Database = sqlx::Any>,
+        E: AnyExecutor<'query>,
     {
-        QueryFuture::new(query, values, |query| {
-            executor
-                .fetch_many(query)
-                .try_filter_map(TRY_FILTER_MAP)
-                .err_into()
-                .try_collect()
+        QueryFuture::new(executor, query, values, |query| {
+            (async move { Ok(query.fetch_all().await?.into_iter().map(Row).collect()) }).boxed()
         })
     }
 }
@@ -362,13 +305,10 @@ impl QueryStrategyImpl for Stream {
         values: Vec<Value<'query>>,
     ) -> Self::Result<'query>
     where
-        E: sqlx::Executor<'query, Database = sqlx::Any>,
+        E: AnyExecutor<'query>,
     {
-        QueryStream::new(query, values, |query| {
-            executor
-                .fetch_many(query)
-                .try_filter_map(TRY_FILTER_MAP)
-                .err_into()
+        QueryStream::new(executor, query, values, |query| {
+            query.fetch_many().try_filter_map(TRY_FILTER_MAP).err_into()
         })
     }
 }

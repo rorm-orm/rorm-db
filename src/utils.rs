@@ -2,18 +2,15 @@
 
 use rorm_sql::value;
 use rorm_sql::value::NullType;
-use sqlx::database::HasArguments;
-use sqlx::query::Query;
 use sqlx::types::chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
-type AnyQuery<'q> = Query<'q, sqlx::Any, <sqlx::Any as HasArguments<'q>>::Arguments>;
+use crate::internal::any::AnyQuery;
 
 /// This helper method is used to bind ConditionValues to the query.
 pub fn bind_param<'post_query, 'query>(
-    query: AnyQuery<'query>,
+    query: &mut AnyQuery<'query>,
     param: value::Value<'post_query>,
-) -> AnyQuery<'query>
-where
+) where
     'post_query: 'query,
 {
     match param {
@@ -40,10 +37,10 @@ where
             NullType::NaiveTime => query.bind(None::<NaiveTime>),
             NullType::NaiveDate => query.bind(None::<NaiveDate>),
             NullType::NaiveDateTime => query.bind(None::<NaiveDateTime>),
-            NullType::Choice => query,
+            NullType::Choice => {}
         },
-        value::Value::Ident(_) => query,
-        value::Value::Column { .. } => query,
-        value::Value::Choice(_) => query,
+        value::Value::Ident(_) => {}
+        value::Value::Column { .. } => {}
+        value::Value::Choice(_) => {}
     }
 }

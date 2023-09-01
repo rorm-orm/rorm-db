@@ -9,25 +9,6 @@
     not(cfg_auto_docs),
     any(
         all(
-            feature = "actix-rustls",
-            any(
-                feature = "actix-native-tls",
-                feature = "tokio-native-tls",
-                feature = "tokio-rustls",
-                feature = "async-std-native-tls",
-                feature = "async-std-rustls"
-            )
-        ),
-        all(
-            feature = "actix-native-tls",
-            any(
-                feature = "tokio-native-tls",
-                feature = "tokio-rustls",
-                feature = "async-std-native-tls",
-                feature = "async-std-rustls"
-            )
-        ),
-        all(
             feature = "tokio-rustls",
             any(
                 feature = "tokio-native-tls",

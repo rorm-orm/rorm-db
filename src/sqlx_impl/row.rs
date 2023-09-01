@@ -1,7 +1,8 @@
+use sqlx::Row as SqlxRowTrait;
+
 use crate::internal::any::AnyRow;
 use crate::row::{Decode, RowIndex};
 use crate::{Error, Row};
-use sqlx::Row as SqlxRow;
 
 pub(crate) type Impl = AnyRow;
 
