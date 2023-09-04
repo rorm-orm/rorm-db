@@ -2,3 +2,6 @@ Since 0.8.1
 -----------
 - Reimplemented QueryWrapper which is a semi-internal self-referencing struct
   -> Removed ouroboros and aliasable from dependencies
+- Updated sqlx to v0.7
+  -> Added a new layer reimplementing `sqlx::any`
+- Removed `FromRow` trait
