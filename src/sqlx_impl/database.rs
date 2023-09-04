@@ -4,7 +4,6 @@ use futures::TryStreamExt;
 use log::{debug, LevelFilter};
 use rorm_declaration::config::DatabaseDriver;
 use rorm_sql::value::Value;
-use rorm_sql::DBImpl;
 use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
@@ -13,9 +12,9 @@ use sqlx::ConnectOptions;
 use crate::database::{Database, DatabaseConfiguration};
 use crate::error::Error;
 use crate::internal::any::{AnyExecutor, AnyPool};
+use crate::internal::utils;
 use crate::row::Row;
 use crate::transaction::Transaction;
-use crate::utils;
 
 pub(crate) type Impl = AnyPool;
 
@@ -142,14 +141,7 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
         }
     };
 
-    Ok(Database {
-        pool,
-        db_impl: match &configuration.driver {
-            DatabaseDriver::SQLite { .. } => DBImpl::SQLite,
-            DatabaseDriver::Postgres { .. } => DBImpl::Postgres,
-            DatabaseDriver::MySQL { .. } => DBImpl::MySQL,
-        },
-    })
+    Ok(Database(pool))
 }
 
 /// Implementation of [Database::raw_sql]
@@ -162,9 +154,9 @@ pub async fn raw_sql<'a>(
     debug!("SQL: {}", query_string);
 
     let mut query = if let Some(transaction) = transaction {
-        transaction.tx.query(query_string)
+        transaction.0.query(query_string)
     } else {
-        db.pool.query(query_string)
+        db.0.query(query_string)
     };
 
     if let Some(params) = bind_params {
@@ -183,8 +175,5 @@ pub async fn raw_sql<'a>(
 
 /// Implementation of [Database::start_transaction]
 pub async fn start_transaction(db: &Database) -> Result<Transaction, Error> {
-    Ok(Transaction {
-        tx: db.pool.begin().await.map_err(Error::SqlxError)?,
-        db_impl: db.db_impl,
-    })
+    Ok(Transaction(db.0.begin().await?))
 }

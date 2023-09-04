@@ -12,7 +12,7 @@ use rorm_sql::select::Select;
 use rorm_sql::select_column::SelectColumnData;
 use rorm_sql::update::Update;
 use rorm_sql::value::Value;
-use rorm_sql::{conditional, value, DBImpl};
+use rorm_sql::{conditional, value};
 
 use crate::error::Error;
 use crate::executor::{AffectedRows, All, Executor, Nothing, One, QueryStrategy};
@@ -95,10 +95,7 @@ Main API wrapper.
 All operations can be started with methods of this struct.
  */
 #[derive(Clone)]
-pub struct Database {
-    pub(crate) pool: internal::database::Impl,
-    pub(crate) db_impl: DBImpl,
-}
+pub struct Database(pub(crate) internal::database::Impl);
 
 impl Database {
     /**

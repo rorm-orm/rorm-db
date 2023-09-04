@@ -7,7 +7,7 @@ pub(crate) type Impl = NotInstantiable;
 /// Implementation of [Transaction::commit]
 pub(crate) async fn commit(transaction: Transaction) -> Result<(), Error> {
     // "Read" tx at least once
-    let _ = transaction.tx;
+    let _ = transaction.0;
     no_sqlx();
 }
 

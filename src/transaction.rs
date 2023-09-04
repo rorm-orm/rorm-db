@@ -1,7 +1,6 @@
 //! This module holds the definition of transactions
 
 use crate::{internal, Error};
-use rorm_sql::DBImpl;
 
 /**
 Transactions can be used to provide a safe way to execute multiple SQL operations
@@ -11,10 +10,7 @@ database.
 Can be obtained using [`Database::start_transaction`](crate::Database::start_transaction).
 */
 #[must_use = "A transaction needs to be committed."]
-pub struct Transaction {
-    pub(crate) tx: internal::transaction::Impl,
-    pub(crate) db_impl: DBImpl,
-}
+pub struct Transaction(pub(crate) internal::transaction::Impl);
 
 impl Transaction {
     /// This function commits the transaction.

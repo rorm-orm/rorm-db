@@ -21,7 +21,7 @@ pub async fn raw_sql<'a>(
     _transaction: Option<&mut Transaction>,
 ) -> Result<Vec<Row>, Error> {
     // "Read" pool at least once
-    let _ = db.pool;
+    let _ = db.0;
     no_sqlx();
 }
 

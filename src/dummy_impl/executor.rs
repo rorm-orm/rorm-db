@@ -29,7 +29,7 @@ impl<'executor> Executor<'executor> for &'executor Database {
     }
 
     fn dialect(&self) -> DBImpl {
-        self.db_impl
+        no_sqlx();
     }
 
     type EnsureTransactionFuture = Ready<Result<TransactionGuard<'executor>, Error>>;
@@ -55,7 +55,7 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction {
     }
 
     fn dialect(&self) -> DBImpl {
-        self.db_impl
+        no_sqlx();
     }
 
     type EnsureTransactionFuture = Ready<Result<TransactionGuard<'executor>, Error>>;

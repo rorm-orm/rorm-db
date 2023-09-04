@@ -4,7 +4,7 @@ use rorm_sql::value;
 use rorm_sql::value::NullType;
 use sqlx::types::chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 
-use crate::internal::any::AnyQuery;
+use super::any::AnyQuery;
 
 /// This helper method is used to bind ConditionValues to the query.
 pub fn bind_param<'post_query, 'query>(

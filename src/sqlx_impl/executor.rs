@@ -10,7 +10,7 @@ use rorm_sql::DBImpl;
 use crate::executor::{
     AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, QueryStrategyResult, Stream,
 };
-use crate::internal::any::{AnyExecutor, AnyQueryResult, AnyRow};
+use crate::internal::any::{AnyExecutor, AnyPool, AnyQueryResult, AnyRow, AnyTransaction};
 use crate::transaction::{Transaction, TransactionGuard};
 use crate::{Database, Error, Row};
 
@@ -25,11 +25,15 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction {
         'data: 'result,
         Q: QueryStrategy,
     {
-        Q::execute(&mut self.tx, query, values)
+        Q::execute(&mut self.0, query, values)
     }
 
     fn dialect(&self) -> DBImpl {
-        self.db_impl
+        match self.0 {
+            AnyTransaction::Postgres(_) => DBImpl::Postgres,
+            AnyTransaction::MySql(_) => DBImpl::MySQL,
+            AnyTransaction::Sqlite(_) => DBImpl::SQLite,
+        }
     }
 
     type EnsureTransactionFuture = Ready<Result<TransactionGuard<'executor>, Error>>;
@@ -52,11 +56,15 @@ impl<'executor> Executor<'executor> for &'executor Database {
         'data: 'result,
         Q: QueryStrategy,
     {
-        Q::execute(&self.pool, query, values)
+        Q::execute(&self.0, query, values)
     }
 
     fn dialect(&self) -> DBImpl {
-        self.db_impl
+        match self.0 {
+            AnyPool::Postgres(_) => DBImpl::Postgres,
+            AnyPool::MySql(_) => DBImpl::MySQL,
+            AnyPool::Sqlite(_) => DBImpl::SQLite,
+        }
     }
 
     type EnsureTransactionFuture = BoxFuture<'executor, Result<TransactionGuard<'executor>, Error>>;
@@ -126,7 +134,7 @@ mod query_wrapper {
             Self::new_basic(query_string, move |query_string| {
                 let mut query = executor.query(query_string);
                 for value in values {
-                    crate::utils::bind_param(&mut query, value);
+                    crate::internal::utils::bind_param(&mut query, value);
                 }
                 execute(query)
             })
