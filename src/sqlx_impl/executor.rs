@@ -339,6 +339,6 @@ mod test {
                 println!("{}", self.0);
             }
         }
-        let w = QueryWrapper::new_basic(format!("Hello World"), BorrowStr);
+        let _w = QueryWrapper::new_basic(format!("Hello World"), BorrowStr);
     }
 }
