@@ -56,6 +56,7 @@ serde = [
     "log/serde",
 ]
 
+# database backends
 mysql = [
     "sqlx/mysql",
     "rorm-sql/mysql",
@@ -69,22 +70,18 @@ sqlite = [
     "rorm-sql/sqlite"
 ]
 
-async-std = []
-async-std-native-tls = [
-    "sqlx/runtime-async-std-native-tls",
-    "async-std",
+# sqlx runtime
+async-std = [
+    "sqlx/runtime-async-std"
 ]
-async-std-rustls = [
-    "sqlx/runtime-async-std-rustls",
-    "async-std",
+tokio = [
+    "sqlx/runtime-tokio"
 ]
 
-tokio = []
-tokio-native-tls = [
-    "sqlx/runtime-tokio-native-tls",
-    "tokio"
+# sqlx tls
+rustls = [
+    "sqlx/tls-rustls"
 ]
-tokio-rustls = [
-    "sqlx/runtime-tokio-rustls",
-    "tokio"
+native-tls = [
+    "sqlx/tls-native-tls"
 ]
