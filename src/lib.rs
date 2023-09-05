@@ -39,10 +39,13 @@ pub mod transaction;
 #[cfg_attr(not(feature = "sqlx"), path = "dummy_impl/mod.rs")]
 pub(crate) mod internal;
 
-pub use rorm_declaration::config::DatabaseDriver;
 /// Re-export [rorm-sql](rorm_sql)
-pub use rorm_sql as sql;
+pub mod sql {
+    pub use rorm_sql::*;
+}
 
 pub use crate::database::{Database, DatabaseConfiguration};
 pub use crate::error::Error;
+pub use crate::executor::Executor;
 pub use crate::row::Row;
+pub use rorm_declaration::config::DatabaseDriver;
