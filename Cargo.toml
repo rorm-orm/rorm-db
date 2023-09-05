@@ -60,14 +60,17 @@ serde = [
 mysql = [
     "sqlx/mysql",
     "rorm-sql/mysql",
+    "rorm-declaration/mysql"
 ]
 postgres = [
     "sqlx/postgres",
     "rorm-sql/postgres",
+    "rorm-declaration/postgres"
 ]
 sqlite = [
     "sqlx/sqlite",
-    "rorm-sql/sqlite"
+    "rorm-sql/sqlite",
+    "rorm-declaration/sqlite"
 ]
 
 # sqlx runtime
