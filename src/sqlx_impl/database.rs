@@ -202,3 +202,13 @@ pub async fn raw_sql<'a>(
 pub async fn start_transaction(db: &Database) -> Result<Transaction, Error> {
     Ok(Transaction(db.0.begin().await?))
 }
+
+/// Implementation of [Database::close]
+pub async fn close(db: Database) {
+    db.0.close().await;
+}
+
+/// Checked in [Database::drop]
+pub fn is_closed(db: &Database) -> bool {
+    db.0.is_closed()
+}

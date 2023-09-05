@@ -29,3 +29,13 @@ pub async fn raw_sql<'a>(
 pub async fn start_transaction(_db: &Database) -> Result<Transaction, Error> {
     no_sqlx();
 }
+
+/// Implementation of [Database::close]
+pub async fn close(db: Database) {
+    no_sqlx();
+}
+
+/// Checked in [Database::drop]
+pub fn is_closed(db: &Database) -> bool {
+    no_sqlx();
+}

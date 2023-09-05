@@ -2,7 +2,7 @@
 This module defines the main API wrapper.
 */
 
-use log::{debug, LevelFilter};
+use log::{debug, warn, LevelFilter};
 use rorm_declaration::config::DatabaseDriver;
 use rorm_sql::delete::Delete;
 use rorm_sql::insert::Insert;
@@ -136,6 +136,19 @@ impl Database {
      */
     pub async fn start_transaction(&self) -> Result<Transaction, Error> {
         internal::database::start_transaction(self).await
+    }
+
+    /// Closes the database connection
+    pub async fn close(self) {
+        internal::database::close(self).await
+    }
+}
+
+impl Drop for Database {
+    fn drop(&mut self) {
+        if !internal::database::is_closed(self) {
+            warn!("Database has been dropped without calling close. This might case the last queries to not being flushed properly");
+        }
     }
 }
 

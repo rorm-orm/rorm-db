@@ -5,3 +5,4 @@ Since 0.8.1
 - Updated sqlx to v0.7
   -> Added a new layer reimplementing `sqlx::any`
 - Removed `FromRow` trait
+- Added `Database::close` with a warning if it is not called

@@ -46,6 +46,33 @@ impl AnyPool {
             Self::Sqlite(pool) => pool.begin().await.map(AnyTransaction::Sqlite),
         }
     }
+
+    /// Shut down the connection pool, immediately waking all tasks waiting for a connection.
+    ///
+    /// See [`Pool::close`]
+    pub async fn close(&self) {
+        match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(pool) => pool.close().await,
+            #[cfg(feature = "mysql")]
+            Self::MySql(pool) => pool.close().await,
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(pool) => pool.close().await,
+        }
+    }
+    /// Returns `true` if [.close()](Self::close) has been called on the pool, `false` otherwise.
+    ///
+    /// See [`Pool::is_closed`]
+    pub fn is_closed(&self) -> bool {
+        match self {
+            #[cfg(feature = "postgres")]
+            Self::Postgres(pool) => pool.is_closed(),
+            #[cfg(feature = "mysql")]
+            Self::MySql(pool) => pool.is_closed(),
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(pool) => pool.is_closed(),
+        }
+    }
 }
 
 /// Enum around [`Transaction<'static, DB>`]
