@@ -41,7 +41,8 @@ Configuration to create a database connection.
 `min_connections` and `max_connections` must be greater than 0
 and `max_connections` must be greater or equals `min_connections`.
  */
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DatabaseConfiguration {
     /// The driver and its corresponding settings
     pub driver: DatabaseDriver,
