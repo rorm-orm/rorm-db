@@ -13,8 +13,11 @@ where
     I: RowIndex,
 {
     let result = match &row.0 {
+        #[cfg(feature = "postgres")]
         AnyRow::Postgres(row) => row.try_get(index),
+        #[cfg(feature = "mysql")]
         AnyRow::MySql(row) => row.try_get(index),
+        #[cfg(feature = "sqlite")]
         AnyRow::Sqlite(row) => row.try_get(index),
     };
     result.map_err(Error::SqlxError)

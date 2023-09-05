@@ -4,9 +4,6 @@ use futures::TryStreamExt;
 use log::{debug, LevelFilter};
 use rorm_declaration::config::DatabaseDriver;
 use rorm_sql::value::Value;
-use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
-use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::ConnectOptions;
 
 use crate::database::{Database, DatabaseConfiguration};
@@ -77,16 +74,31 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
     let disabled_logging = configuration.disable_logging.unwrap_or(false);
 
     let pool: Impl = match &configuration.driver {
+        #[cfg(feature = "sqlite")]
         DatabaseDriver::SQLite { filename } => {
-            let connect_options = SqliteConnectOptions::new()
+            let connect_options = sqlx::sqlite::SqliteConnectOptions::new()
                 .create_if_missing(true)
                 .filename(filename);
+            let connect_options = if disabled_logging {
+                connect_options.disable_statement_logging()
+            } else {
+                connect_options
+                    .log_statements(log_level)
+                    .log_slow_statements(slow_log_level, SLOW_STATEMENTS)
+            };
             Impl::Sqlite(
-                pool_options!(SqlitePoolOptions)
+                pool_options!(sqlx::sqlite::SqlitePoolOptions)
                     .connect_with(connect_options)
                     .await?,
             )
         }
+        #[cfg(not(feature = "sqlite"))]
+        DatabaseDriver::SQLite { .. } => {
+            return Err(Error::ConfigurationError(
+                "sqlite database is not enabled".to_string(),
+            ));
+        }
+        #[cfg(feature = "postgres")]
         DatabaseDriver::Postgres {
             host,
             port,
@@ -94,7 +106,7 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
             user,
             password,
         } => {
-            let connect_options = PgConnectOptions::new()
+            let connect_options = sqlx::postgres::PgConnectOptions::new()
                 .host(host.as_str())
                 .port(*port)
                 .username(user.as_str())
@@ -108,11 +120,18 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
                     .log_slow_statements(slow_log_level, SLOW_STATEMENTS)
             };
             Impl::Postgres(
-                pool_options!(PgPoolOptions)
+                pool_options!(sqlx::postgres::PgPoolOptions)
                     .connect_with(connect_options)
                     .await?,
             )
         }
+        #[cfg(not(feature = "postgres"))]
+        DatabaseDriver::Postgres { .. } => {
+            return Err(Error::ConfigurationError(
+                "postgres database is not enabled".to_string(),
+            ));
+        }
+        #[cfg(feature = "mysql")]
         DatabaseDriver::MySQL {
             name,
             host,
@@ -120,7 +139,7 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
             user,
             password,
         } => {
-            let connect_options = MySqlConnectOptions::new()
+            let connect_options = sqlx::mysql::MySqlConnectOptions::new()
                 .host(host.as_str())
                 .port(*port)
                 .username(user.as_str())
@@ -134,10 +153,16 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
                     .log_slow_statements(slow_log_level, SLOW_STATEMENTS)
             };
             Impl::MySql(
-                pool_options!(MySqlPoolOptions)
+                pool_options!(sqlx::mysql::MySqlPoolOptions)
                     .connect_with(connect_options)
                     .await?,
             )
+        }
+        #[cfg(not(feature = "mysql"))]
+        DatabaseDriver::MySQL { .. } => {
+            return Err(Error::ConfigurationError(
+                "mysql database is not enabled".to_string(),
+            ));
         }
     };
 

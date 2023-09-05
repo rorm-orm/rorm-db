@@ -30,8 +30,11 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction {
 
     fn dialect(&self) -> DBImpl {
         match self.0 {
+            #[cfg(feature = "postgres")]
             AnyTransaction::Postgres(_) => DBImpl::Postgres,
+            #[cfg(feature = "mysql")]
             AnyTransaction::MySql(_) => DBImpl::MySQL,
+            #[cfg(feature = "sqlite")]
             AnyTransaction::Sqlite(_) => DBImpl::SQLite,
         }
     }
@@ -61,8 +64,11 @@ impl<'executor> Executor<'executor> for &'executor Database {
 
     fn dialect(&self) -> DBImpl {
         match self.0 {
+            #[cfg(feature = "postgres")]
             AnyPool::Postgres(_) => DBImpl::Postgres,
+            #[cfg(feature = "mysql")]
             AnyPool::MySql(_) => DBImpl::MySQL,
+            #[cfg(feature = "sqlite")]
             AnyPool::Sqlite(_) => DBImpl::SQLite,
         }
     }

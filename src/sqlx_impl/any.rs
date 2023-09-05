@@ -8,13 +8,27 @@ use std::ops::DerefMut;
 use futures::stream::BoxStream;
 use futures::{StreamExt, TryStreamExt};
 use sqlx::query::Query;
-use sqlx::{mysql, postgres, sqlite, Executor, MySql, Pool, Postgres, Sqlite, Transaction};
+use sqlx::{Executor, Pool, Transaction};
+
+#[macro_use]
+#[path = "./cond_macros.rs"]
+mod cond_macros;
+
+#[cfg(feature = "mysql")]
+use sqlx::{mysql, MySql};
+#[cfg(feature = "postgres")]
+use sqlx::{postgres, Postgres};
+#[cfg(feature = "sqlite")]
+use sqlx::{sqlite, Sqlite};
 
 /// Enum around [`Pool<DB>`]
 #[derive(Clone, Debug)]
 pub enum AnyPool {
+    #[cfg(feature = "postgres")]
     Postgres(Pool<Postgres>),
+    #[cfg(feature = "mysql")]
     MySql(Pool<MySql>),
+    #[cfg(feature = "sqlite")]
     Sqlite(Pool<Sqlite>),
 }
 
@@ -24,8 +38,11 @@ impl AnyPool {
     /// See [`Pool::begin`]
     pub async fn begin(&self) -> sqlx::Result<AnyTransaction> {
         match self {
+            #[cfg(feature = "postgres")]
             Self::Postgres(pool) => pool.begin().await.map(AnyTransaction::Postgres),
+            #[cfg(feature = "mysql")]
             Self::MySql(pool) => pool.begin().await.map(AnyTransaction::MySql),
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(pool) => pool.begin().await.map(AnyTransaction::Sqlite),
         }
     }
@@ -33,8 +50,11 @@ impl AnyPool {
 
 /// Enum around [`Transaction<'static, DB>`]
 pub enum AnyTransaction {
+    #[cfg(feature = "postgres")]
     Postgres(Transaction<'static, Postgres>),
+    #[cfg(feature = "mysql")]
     MySql(Transaction<'static, MySql>),
+    #[cfg(feature = "sqlite")]
     Sqlite(Transaction<'static, Sqlite>),
 }
 
@@ -44,8 +64,11 @@ impl AnyTransaction {
     /// See [Transaction::commit]
     pub async fn commit(self) -> sqlx::Result<()> {
         match self {
+            #[cfg(feature = "postgres")]
             Self::Postgres(tx) => tx.commit().await,
+            #[cfg(feature = "mysql")]
             Self::MySql(tx) => tx.commit().await,
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(tx) => tx.commit().await,
         }
     }
@@ -55,8 +78,11 @@ impl AnyTransaction {
     /// See [Transaction::rollback]
     pub async fn rollback(self) -> sqlx::Result<()> {
         match self {
+            #[cfg(feature = "postgres")]
             Self::Postgres(tx) => tx.rollback().await,
+            #[cfg(feature = "mysql")]
             Self::MySql(tx) => tx.rollback().await,
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(tx) => tx.rollback().await,
         }
     }
@@ -64,11 +90,17 @@ impl AnyTransaction {
 
 /// Combination of an [`AnyExecutor`] and its associated [`Query<'q, DB, _>`]
 pub enum AnyQuery<'q> {
+    #[cfg(feature = "postgres")]
     PostgresPool(AnyQueryInner<'q, &'q Pool<Postgres>, postgres::PgArguments>),
+    #[cfg(feature = "mysql")]
     MySqlPool(AnyQueryInner<'q, &'q Pool<MySql>, mysql::MySqlArguments>),
+    #[cfg(feature = "sqlite")]
     SqlitePool(AnyQueryInner<'q, &'q Pool<Sqlite>, sqlite::SqliteArguments<'q>>),
+    #[cfg(feature = "postgres")]
     PostgresConn(AnyQueryInner<'q, &'q mut postgres::PgConnection, postgres::PgArguments>),
+    #[cfg(feature = "mysql")]
     MySqlConn(AnyQueryInner<'q, &'q mut mysql::MySqlConnection, mysql::MySqlArguments>),
+    #[cfg(feature = "sqlite")]
     SqliteConn(AnyQueryInner<'q, &'q mut sqlite::SqliteConnection, sqlite::SqliteArguments<'q>>),
 }
 #[doc(hidden)]
@@ -77,24 +109,6 @@ pub struct AnyQueryInner<'q, E: Executor<'q>, A> {
     query: Option<Query<'q, E::Database, A>>,
 }
 
-macro_rules! expand_match_impl {
-    ($macro:ident) => {
-        $macro!(
-            PostgresPool,
-            Postgres,
-            PostgresConn,
-            Postgres,
-            MySqlPool,
-            MySql,
-            MySqlConn,
-            MySql,
-            SqlitePool,
-            Sqlite,
-            SqliteConn,
-            Sqlite
-        )
-    };
-}
 impl<'q> AnyQuery<'q> {
     /// Bind a value for use with this SQL query.
     ///
@@ -104,14 +118,17 @@ impl<'q> AnyQuery<'q> {
         T: 'q + Send + AnyEncode<'q> + AnyType,
     {
         match self {
+            #[cfg(feature = "postgres")]
             Self::PostgresPool(AnyQueryInner { query, .. })
             | Self::PostgresConn(AnyQueryInner { query, .. }) => {
                 *query = query.take().map(|query| query.bind(value))
             }
+            #[cfg(feature = "mysql")]
             Self::MySqlPool(AnyQueryInner { query, .. })
             | Self::MySqlConn(AnyQueryInner { query, .. }) => {
                 *query = query.take().map(|query| query.bind(value))
             }
+            #[cfg(feature = "sqlite")]
             Self::SqlitePool(AnyQueryInner { query, .. })
             | Self::SqliteConn(AnyQueryInner { query, .. }) => {
                 *query = query.take().map(|query| query.bind(value))
@@ -135,7 +152,7 @@ impl<'q> AnyQuery<'q> {
                 )+}
             }
         }
-        expand_match_impl!(match_impl)
+        expand_fetch_impl!(match_impl)
     }
 
     /// Execute the query and return all the generated results, collected into a `Vec`.
@@ -155,7 +172,7 @@ impl<'q> AnyQuery<'q> {
                 )+}
             }
         }
-        expand_match_impl!(match_impl)
+        expand_fetch_impl!(match_impl)
     }
 
     /// Execute the query and returns at most one row.
@@ -170,7 +187,7 @@ impl<'q> AnyQuery<'q> {
                 )+}
             }
         }
-        expand_match_impl!(match_impl)
+        expand_fetch_impl!(match_impl)
     }
 
     /// Execute the query and return the number of affected rows.
@@ -188,21 +205,27 @@ impl<'q> AnyQuery<'q> {
                 )+}
             }
         }
-        expand_match_impl!(match_impl)
+        expand_fetch_impl!(match_impl)
     }
 }
 
 /// Enum around [`<DB as Database>::Row`](Database#associatedtype.Row)
 pub enum AnyRow {
+    #[cfg(feature = "postgres")]
     Postgres(postgres::PgRow),
+    #[cfg(feature = "mysql")]
     MySql(mysql::MySqlRow),
+    #[cfg(feature = "sqlite")]
     Sqlite(sqlite::SqliteRow),
 }
 
 /// Enum around [`<DB as Database>::QueryResult`](Database#associatedtype.Row)
 pub enum AnyQueryResult {
+    #[cfg(feature = "postgres")]
     Postgres(postgres::PgQueryResult),
+    #[cfg(feature = "mysql")]
     MySql(mysql::MySqlQueryResult),
+    #[cfg(feature = "sqlite")]
     Sqlite(sqlite::SqliteQueryResult),
 }
 
@@ -210,8 +233,11 @@ impl AnyQueryResult {
     /// The number of rows affected by a query
     pub fn rows_affected(&self) -> u64 {
         match self {
+            #[cfg(feature = "postgres")]
             Self::Postgres(result) => result.rows_affected(),
+            #[cfg(feature = "mysql")]
             Self::MySql(result) => result.rows_affected(),
+            #[cfg(feature = "sqlite")]
             Self::Sqlite(result) => result.rows_affected(),
         }
     }
@@ -233,14 +259,17 @@ impl<'e> AnyExecutor<'e> for &'e AnyPool {
         'e: 'q,
     {
         match self {
+            #[cfg(feature = "postgres")]
             AnyPool::Postgres(pool) => AnyQuery::PostgresPool(AnyQueryInner {
                 executor: pool,
                 query: Some(sqlx::query(query)),
             }),
+            #[cfg(feature = "mysql")]
             AnyPool::MySql(pool) => AnyQuery::MySqlPool(AnyQueryInner {
                 executor: pool,
                 query: Some(sqlx::query(query)),
             }),
+            #[cfg(feature = "sqlite")]
             AnyPool::Sqlite(pool) => AnyQuery::SqlitePool(AnyQueryInner {
                 executor: pool,
                 query: Some(sqlx::query(query)),
@@ -254,14 +283,17 @@ impl<'e> AnyExecutor<'e> for &'e mut AnyTransaction {
         'e: 'q,
     {
         match self {
+            #[cfg(feature = "postgres")]
             AnyTransaction::Postgres(tx) => AnyQuery::PostgresConn(AnyQueryInner {
                 executor: tx.deref_mut(),
                 query: Some(sqlx::query(query)),
             }),
+            #[cfg(feature = "mysql")]
             AnyTransaction::MySql(tx) => AnyQuery::MySqlConn(AnyQueryInner {
                 executor: tx.deref_mut(),
                 query: Some(sqlx::query(query)),
             }),
+            #[cfg(feature = "sqlite")]
             AnyTransaction::Sqlite(tx) => AnyQuery::SqliteConn(AnyQueryInner {
                 executor: tx.deref_mut(),
                 query: Some(sqlx::query(query)),
@@ -270,41 +302,37 @@ impl<'e> AnyExecutor<'e> for &'e mut AnyTransaction {
     }
 }
 
-/// Trait alias combining all [`Encode<'q, DB>`](sqlx::Encode)
-pub trait AnyEncode<'q>:
-    sqlx::Encode<'q, Postgres> + sqlx::Encode<'q, MySql> + sqlx::Encode<'q, Sqlite>
-{
-}
-impl<'q, T: sqlx::Encode<'q, Postgres> + sqlx::Encode<'q, MySql> + sqlx::Encode<'q, Sqlite>>
-    AnyEncode<'q> for T
-{
+macro_rules! uncond_trait_alias {
+    ($(#[doc = $doc:literal])* trait $trait:ident $(<$lifetime:lifetime>)?: $($bound:path,)+) => {
+        $(#[doc = $doc])*
+        pub trait $trait $(<$lifetime>)?
+        where
+            $(Self: $bound),+
+        {}
+
+        impl<$($lifetime,)? T> $trait $(<$lifetime>)? for T
+        where
+            $(Self: $bound),+
+        {}
+    };
 }
 
-/// Trait alias combining all [`Decode<'r, DB>`](sqlx::Decode)
-pub trait AnyDecode<'r>:
-    sqlx::Decode<'r, Postgres> + sqlx::Decode<'r, MySql> + sqlx::Decode<'r, Sqlite>
-{
-}
-impl<'r, T: sqlx::Decode<'r, Postgres> + sqlx::Decode<'r, MySql> + sqlx::Decode<'r, Sqlite>>
-    AnyDecode<'r> for T
-{
-}
+trait_alias!(
+    /// Trait alias combining all [`Encode<'q, DB>`](sqlx::Encode)
+    trait AnyEncode<'q>: sqlx::Encode<'q, Postgres>, sqlx::Encode<'q, MySql>, sqlx::Encode<'q, Sqlite>,
+);
 
-/// Trait alias combining all [`Type<DB>`](sqlx::Type)
-pub trait AnyType: sqlx::Type<Postgres> + sqlx::Type<MySql> + sqlx::Type<Sqlite> {}
-impl<T: sqlx::Type<Postgres> + sqlx::Type<MySql> + sqlx::Type<Sqlite>> AnyType for T {}
+trait_alias!(
+    /// Trait alias combining all [`Decode<'r, DB>`](sqlx::Decode)
+    trait AnyDecode<'r>: sqlx::Decode<'r, Postgres>, sqlx::Decode<'r, MySql>, sqlx::Decode<'r, Sqlite>,
+);
 
-/// Trait alias combining all [`ColumnIndex<DB>`](sqlx::ColumnIndex)
-pub trait AnyColumnIndex:
-    sqlx::ColumnIndex<sqlx::postgres::PgRow>
-    + sqlx::ColumnIndex<sqlx::mysql::MySqlRow>
-    + sqlx::ColumnIndex<sqlx::sqlite::SqliteRow>
-{
-}
-impl<
-        T: sqlx::ColumnIndex<sqlx::postgres::PgRow>
-            + sqlx::ColumnIndex<sqlx::mysql::MySqlRow>
-            + sqlx::ColumnIndex<sqlx::sqlite::SqliteRow>,
-    > AnyColumnIndex for T
-{
-}
+trait_alias!(
+    /// Trait alias combining all [`Type<DB>`](sqlx::Type)
+    trait AnyType: sqlx::Type<Postgres>, sqlx::Type<MySql>, sqlx::Type<Sqlite>,
+);
+
+trait_alias!(
+    /// Trait alias combining all [`ColumnIndex<DB>`](sqlx::ColumnIndex)
+    trait AnyColumnIndex: sqlx::ColumnIndex<postgres::PgRow>, sqlx::ColumnIndex<mysql::MySqlRow>, sqlx::ColumnIndex<sqlite::SqliteRow>,
+);
