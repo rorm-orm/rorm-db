@@ -71,6 +71,10 @@ sqlite = [
 ## Exclusive drivers
 postgres-only = [
     "postgres",
+    "rorm-sql/postgres-only",
+    "sqlx/mac_address",
+    "sqlx/ipnetwork",
+    "sqlx/bit-vec",
 ]
 
 # sqlx runtime

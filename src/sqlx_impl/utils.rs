@@ -1,11 +1,9 @@
 //! Utility functions
 
 use rorm_sql::value::{NullType, Value};
-use sqlx::types::chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
-use sqlx::types::time::{Date, OffsetDateTime, PrimitiveDateTime, Time};
-use sqlx::types::{Json, Uuid};
+use sqlx::types::Json;
 
-use super::any::AnyQuery;
+use super::any::{AnyEncode, AnyQuery, AnyType};
 
 /// This helper method is used to bind ConditionValues to the query.
 pub fn bind_param<'post_query, 'query>(query: &mut AnyQuery<'query>, param: Value<'post_query>)
@@ -41,6 +39,13 @@ where
 
         Value::JsonValue(x) => query.bind(Json(x)),
 
+        #[cfg(feature = "postgres-only")]
+        Value::MacAddress(x) => query.bind(x),
+        #[cfg(feature = "postgres-only")]
+        Value::IpNetwork(x) => query.bind(x),
+        #[cfg(feature = "postgres-only")]
+        Value::BitVec(x) => query.bind(x),
+
         Value::Null(null_type) => match null_type {
             NullType::String => query.bind(None::<&str>),
             NullType::I64 => query.bind(None::<i64>),
@@ -52,21 +57,37 @@ where
             NullType::Binary => query.bind(None::<&[u8]>),
             NullType::Choice => {}
 
-            NullType::ChronoNaiveTime => query.bind(None::<NaiveTime>),
-            NullType::ChronoNaiveDate => query.bind(None::<NaiveDate>),
-            NullType::ChronoNaiveDateTime => query.bind(None::<NaiveDateTime>),
-            NullType::ChronoDateTime => query.bind(None::<DateTime<Utc>>),
+            NullType::ChronoNaiveTime => query.bind(none(Value::ChronoNaiveTime)),
+            NullType::ChronoNaiveDate => query.bind(none(Value::ChronoNaiveDate)),
+            NullType::ChronoNaiveDateTime => query.bind(none(Value::ChronoNaiveDateTime)),
+            NullType::ChronoDateTime => query.bind(none(Value::ChronoDateTime)),
 
-            NullType::TimeDate => query.bind(None::<Date>),
-            NullType::TimeTime => query.bind(None::<Time>),
-            NullType::TimeOffsetDateTime => query.bind(None::<OffsetDateTime>),
-            NullType::TimePrimitiveDateTime => query.bind(None::<PrimitiveDateTime>),
+            NullType::TimeDate => query.bind(none(Value::TimeDate)),
+            NullType::TimeTime => query.bind(none(Value::TimeTime)),
+            NullType::TimeOffsetDateTime => query.bind(none(Value::TimeOffsetDateTime)),
+            NullType::TimePrimitiveDateTime => query.bind(none(Value::TimePrimitiveDateTime)),
 
-            NullType::Uuid => query.bind(None::<Uuid>),
+            NullType::Uuid => query.bind(none(Value::Uuid)),
             NullType::UuidHyphenated => query.bind(None::<String>),
             NullType::UuidSimple => query.bind(None::<String>),
 
-            NullType::JsonValue => query.bind(None::<Json<()>>),
+            NullType::JsonValue => query.bind(none(Value::JsonValue)),
+
+            #[cfg(feature = "postgres-only")]
+            NullType::MacAddress => query.bind(none(Value::MacAddress)),
+            #[cfg(feature = "postgres-only")]
+            NullType::IpNetwork => query.bind(none(Value::IpNetwork)),
+            #[cfg(feature = "postgres-only")]
+            NullType::BitVec => query.bind(none(Value::BitVec)),
         },
     }
+}
+
+/// Little helper hack to avoid using naming the types
+fn none<'a, T, F>(_value_variant: F) -> Option<T>
+where
+    F: Fn(T) -> Value<'a>,
+    Option<T>: 'a + Send + AnyEncode<'a> + AnyType,
+{
+    None
 }
