@@ -33,30 +33,6 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
         )));
     }
 
-    match &configuration.driver {
-        DatabaseDriver::SQLite { filename, .. } => {
-            if filename.is_empty() {
-                return Err(Error::ConfigurationError(String::from(
-                    "filename must not be empty",
-                )));
-            }
-        }
-        DatabaseDriver::Postgres { name, .. } => {
-            if name.is_empty() {
-                return Err(Error::ConfigurationError(String::from(
-                    "name must not be empty",
-                )));
-            }
-        }
-        DatabaseDriver::MySQL { name, .. } => {
-            if name.is_empty() {
-                return Err(Error::ConfigurationError(String::from(
-                    "name must not be empty",
-                )));
-            }
-        }
-    };
-
     macro_rules! pool_options {
         ($Pool:ty) => {
             <$Pool>::new()
@@ -76,6 +52,11 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
     let pool: Impl = match &configuration.driver {
         #[cfg(feature = "sqlite")]
         DatabaseDriver::SQLite { filename } => {
+            if filename.is_empty() {
+                return Err(Error::ConfigurationError(String::from(
+                    "filename must not be empty",
+                )));
+            }
             let connect_options = sqlx::sqlite::SqliteConnectOptions::new()
                 .create_if_missing(true)
                 .filename(filename);
@@ -92,12 +73,6 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
                     .await?,
             )
         }
-        #[cfg(not(feature = "sqlite"))]
-        DatabaseDriver::SQLite { .. } => {
-            return Err(Error::ConfigurationError(
-                "sqlite database is not enabled".to_string(),
-            ));
-        }
         #[cfg(feature = "postgres")]
         DatabaseDriver::Postgres {
             host,
@@ -106,6 +81,11 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
             user,
             password,
         } => {
+            if name.is_empty() {
+                return Err(Error::ConfigurationError(String::from(
+                    "name must not be empty",
+                )));
+            }
             let connect_options = sqlx::postgres::PgConnectOptions::new()
                 .host(host.as_str())
                 .port(*port)
@@ -125,12 +105,6 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
                     .await?,
             )
         }
-        #[cfg(not(feature = "postgres"))]
-        DatabaseDriver::Postgres { .. } => {
-            return Err(Error::ConfigurationError(
-                "postgres database is not enabled".to_string(),
-            ));
-        }
         #[cfg(feature = "mysql")]
         DatabaseDriver::MySQL {
             name,
@@ -139,6 +113,11 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
             user,
             password,
         } => {
+            if name.is_empty() {
+                return Err(Error::ConfigurationError(String::from(
+                    "name must not be empty",
+                )));
+            }
             let connect_options = sqlx::mysql::MySqlConnectOptions::new()
                 .host(host.as_str())
                 .port(*port)
@@ -157,12 +136,6 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
                     .connect_with(connect_options)
                     .await?,
             )
-        }
-        #[cfg(not(feature = "mysql"))]
-        DatabaseDriver::MySQL { .. } => {
-            return Err(Error::ConfigurationError(
-                "mysql database is not enabled".to_string(),
-            ));
         }
     };
 
