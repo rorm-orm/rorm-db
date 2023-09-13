@@ -20,7 +20,7 @@ pub(crate) type Impl = AnyPool;
 const SLOW_STATEMENTS: Duration = Duration::from_millis(300);
 
 /// Implementation of [Database::connect]
-pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Database, Error> {
+pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Impl, Error> {
     if configuration.max_connections < configuration.min_connections {
         return Err(Error::ConfigurationError(String::from(
             "max_connections must not be less than min_connections",
@@ -139,7 +139,7 @@ pub(crate) async fn connect(configuration: DatabaseConfiguration) -> Result<Data
         }
     };
 
-    Ok(Database(pool))
+    Ok(pool)
 }
 
 /// Implementation of [Database::raw_sql]

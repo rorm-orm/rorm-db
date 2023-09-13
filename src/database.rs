@@ -2,6 +2,8 @@
 This module defines the main API wrapper.
 */
 
+use std::sync::Arc;
+
 use log::{debug, warn, LevelFilter};
 use rorm_declaration::config::DatabaseDriver;
 use rorm_sql::delete::Delete;
@@ -96,14 +98,17 @@ Main API wrapper.
 All operations can be started with methods of this struct.
  */
 #[derive(Clone)]
-pub struct Database(pub(crate) internal::database::Impl);
+pub struct Database(pub(crate) internal::database::Impl, Arc<()>);
 
 impl Database {
     /**
     Connect to the database using `configuration`.
      */
     pub async fn connect(configuration: DatabaseConfiguration) -> Result<Self, Error> {
-        internal::database::connect(configuration).await
+        Ok(Self(
+            internal::database::connect(configuration).await?,
+            Arc::new(()),
+        ))
     }
 
     /**
@@ -146,7 +151,10 @@ impl Database {
 
 impl Drop for Database {
     fn drop(&mut self) {
-        if !internal::database::is_closed(self) {
+        // The use of strong_count should be correct:
+        // - the arc is private and we don't create WeakRefs
+        // => when observing a strong_count of 1, there can't be any remaining refs
+        if Arc::strong_count(&self.1) == 1 && !internal::database::is_closed(self) {
             warn!("Database has been dropped without calling close. This might case the last queries to not being flushed properly");
         }
     }

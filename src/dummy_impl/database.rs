@@ -9,7 +9,7 @@ use crate::transaction::Transaction;
 pub(crate) type Impl = NotInstantiable;
 
 /// Implementation of [Database::connect]
-pub(crate) async fn connect(_configuration: DatabaseConfiguration) -> Result<Database, Error> {
+pub(crate) async fn connect(_configuration: DatabaseConfiguration) -> Result<Impl, Error> {
     no_sqlx();
 }
 
