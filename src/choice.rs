@@ -16,8 +16,8 @@ const _: () = {
             fn type_info() -> <Postgres as Database>::TypeInfo {
                 <str as Type<Postgres>>::type_info()
             }
-            fn compatible(ty: &<Postgres as Database>::TypeInfo) -> bool {
-                <str as Type<Postgres>>::compatible(ty)
+            fn compatible(_ty: &<Postgres as Database>::TypeInfo) -> bool {
+                true // ugly but the only possible solution at the moment
             }
         }
         impl<'r> Decode<'r, Postgres> for Choice {
