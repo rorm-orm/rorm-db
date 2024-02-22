@@ -9,7 +9,8 @@ use super::no_sqlx;
 use crate::database::Database;
 use crate::error::Error;
 use crate::executor::{
-    AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, QueryStrategyResult, Stream,
+    AffectedRows, All, DynamicExecutor, Executor, Nothing, One, Optional, QueryStrategy,
+    QueryStrategyResult, Stream,
 };
 use crate::row::Row;
 use crate::transaction::{Transaction, TransactionGuard};
@@ -28,6 +29,10 @@ impl<'executor> Executor<'executor> for &'executor Database {
         no_sqlx();
     }
 
+    fn into_dyn(self) -> DynamicExecutor<'executor> {
+        DynamicExecutor::Database(self)
+    }
+
     fn dialect(&self) -> DBImpl {
         no_sqlx();
     }
@@ -40,6 +45,7 @@ impl<'executor> Executor<'executor> for &'executor Database {
         no_sqlx();
     }
 }
+
 impl<'executor> Executor<'executor> for &'executor mut Transaction {
     fn execute<'data, 'result, Q>(
         self,
@@ -52,6 +58,10 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction {
         Q: QueryStrategy,
     {
         no_sqlx();
+    }
+
+    fn into_dyn(self) -> DynamicExecutor<'executor> {
+        DynamicExecutor::Transaction(self)
     }
 
     fn dialect(&self) -> DBImpl {
@@ -68,6 +78,7 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction {
 }
 
 pub trait QueryStrategyImpl: QueryStrategyResult {}
+
 impl<Q: QueryStrategyResult> QueryStrategyImpl for Q {}
 
 impl QueryStrategyResult for Nothing {

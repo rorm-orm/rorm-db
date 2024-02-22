@@ -1,6 +1,4 @@
-/*!
-This module defines the main API wrapper.
-*/
+//! [`Database`] struct and several common operations
 
 use std::sync::Arc;
 
@@ -37,29 +35,33 @@ As all databases use currently the same fields, a type alias is sufficient.
 */
 pub type JoinTable<'until_build, 'post_build> = JoinTableData<'until_build, 'post_build>;
 
-/**
-Configuration to create a database connection.
-
-`min_connections` and `max_connections` must be greater than 0
-and `max_connections` must be greater or equals `min_connections`.
- */
+/// Configuration use in [`Database::connect`].
 #[derive(Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DatabaseConfiguration {
     /// The driver and its corresponding settings
     pub driver: DatabaseDriver,
+
     /// Minimal connections to initialize upfront.
+    ///
+    /// Must be greater than `0` and can't be larger than `max_connections`.
     pub min_connections: u32,
+
     /// Maximum connections that allowed to be created.
+    ///
+    /// Must be greater than `0`.
     pub max_connections: u32,
+
     /// If set to true, logging will be completely disabled.
     ///
     /// In case of None, false will be used.
     pub disable_logging: Option<bool>,
+
     /// Set the log level of SQL statements
     ///
     /// In case of None, [`LevelFilter::Debug`] will be used.
     pub statement_log_level: Option<LevelFilter>,
+
     /// Log level in case of slow statements (>300 ms)
     ///
     /// In case of None, [`LevelFilter::Warn`] will be used.
@@ -92,18 +94,19 @@ impl DatabaseConfiguration {
     }
 }
 
-/**
-Main API wrapper.
-
-All operations can be started with methods of this struct.
- */
+/// Handle to a pool of database connections
+///
+/// Executing sql statements is done through the [`Executor`] trait
+/// which is implemented on `&Database`.
+///
+/// Common operations are implemented as functions in the [`database`](self) module.
+///
+/// Cloning is cheap i.e. two `Arc`s.
 #[derive(Clone)]
 pub struct Database(pub(crate) internal::database::Impl, Arc<()>);
 
 impl Database {
-    /**
-    Connect to the database using `configuration`.
-     */
+    /// Connects to the database using `configuration`
     pub async fn connect(configuration: DatabaseConfiguration) -> Result<Self, Error> {
         Ok(Self(
             internal::database::connect(configuration).await?,
@@ -127,6 +130,7 @@ impl Database {
     **Returns** a list of rows. If there are no values to retrieve, an empty
     list is returned.
      */
+    #[deprecated = "Use `Executor::execute` instead"]
     pub async fn raw_sql<'a>(
         &self,
         query_string: &'a str,
@@ -136,20 +140,31 @@ impl Database {
         internal::database::raw_sql(self, query_string, bind_params, transaction).await
     }
 
-    /**
-    Entry point for a [`Transaction`].
-     */
+    /// Starts a new transaction
+    ///
+    /// `&mut Transaction` implements [`Executor`] like `&Database` does
+    /// but its database operations can be reverted using [`Transaction::rollback`]
+    /// or simply dropping the transaction without calling [`Transaction::commit`].
     pub async fn start_transaction(&self) -> Result<Transaction, Error> {
         internal::database::start_transaction(self).await
     }
 
     /// Closes the database connection
+    ///
+    /// While calling this method is not strictly necessary,
+    /// terminating your program without it
+    /// might result in some final queries not being flushed properly.
+    ///
+    /// This method consumes the database handle,
+    /// but actually all handles created using `clone` will become invalid after this call.
+    /// This means any further operation would result in an `Err`
     pub async fn close(self) {
         internal::database::close(self).await
     }
 }
 
 impl Drop for Database {
+    /// Checks whether [`Database::close`] has been called before the last instance is dropped
     fn drop(&mut self) {
         // The use of strong_count should be correct:
         // - the arc is private and we don't create WeakRefs
@@ -160,22 +175,20 @@ impl Drop for Database {
     }
 }
 
-/**
-This method is used to retrieve rows that match the provided query.
-
-It is generic over a [`QueryStrategy`] which specifies how and how many rows to query.
-
-**Parameter**:
-- `model`: Model to query.
-- `columns`: Columns to retrieve values from.
-- `joins`: Join tables expressions.
-- `conditions`: Optional conditions to apply.
-- `limit`: Optional limit / offset to apply to the query.
-    Depending on the query strategy, this is either [`LimitClause`](rorm_sql::limit_clause::LimitClause)
-    (for [`All`] and [`Stream`](crate::executor::Stream))
-    or a simple [`u64`] (for [`One`] and [`Optional`](crate::executor::Optional)).
-- `transaction`: Optional transaction to execute the query on.
- */
+/// Executes a simple `SELECT` query.
+///
+/// It is generic over a [`QueryStrategy`] which specifies how and how many rows to query.
+///
+/// **Parameter**:
+/// - `model`: Model to query.
+/// - `columns`: Columns to retrieve values from.
+/// - `joins`: Join tables expressions.
+/// - `conditions`: Optional conditions to apply.
+/// - `order_by_clause`: Columns to order the rows by.
+/// - `limit`: Optional limit / offset to apply to the query.
+///     Depending on the query strategy, this is either [`LimitClause`](rorm_sql::limit_clause::LimitClause)
+///     (for [`All`] and [`Stream`](crate::executor::Stream))
+///     or a simple [`u64`] (for [`One`] and [`Optional`](crate::executor::Optional)).
 #[allow(clippy::too_many_arguments)]
 pub fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryStrategy + GetLimitClause>(
     executor: impl Executor<'db>,
@@ -224,15 +237,13 @@ pub fn query<'result, 'db: 'result, 'post_query: 'result, Q: QueryStrategy + Get
     executor.execute::<Q>(query_string, bind_params)
 }
 
-/**
-This method is used to insert into a table.
-
-**Parameter**:
-- `model`: Table to insert to
-- `columns`: Columns to set `values` for.
-- `values`: Values to bind to the corresponding columns.
-- `transaction`: Optional transaction to execute the query on.
- */
+/// Inserts a single row and returns columns from it.
+///
+/// **Parameter**:
+/// - `model`: Table to insert to
+/// - `columns`: Columns to set `values` for.
+/// - `values`: Values to bind to the corresponding columns.
+/// - `returning`: Columns to query from the inserted row.
 pub async fn insert_returning(
     executor: impl Executor<'_>,
     model: &str,
@@ -243,15 +254,12 @@ pub async fn insert_returning(
     generic_insert::<One>(executor, model, columns, values, Some(returning)).await
 }
 
-/**
-This method is used to insert into a table.
-
-**Parameter**:
-- `model`: Table to insert to
-- `columns`: Columns to set `values` for.
-- `values`: Values to bind to the corresponding columns.
-- `transaction`: Optional transaction to execute the query on.
- */
+/// Inserts a single row.
+///
+/// **Parameter**:
+/// - `model`: Table to insert to
+/// - `columns`: Columns to set `values` for.
+/// - `values`: Values to bind to the corresponding columns.
 pub async fn insert(
     executor: impl Executor<'_>,
     model: &str,
@@ -281,17 +289,15 @@ pub(crate) fn generic_insert<'result, 'db: 'result, 'post_query: 'result, Q: Que
     executor.execute::<Q>(query_string, bind_params)
 }
 
-/**
-This method is used to bulk insert rows.
-
-If one insert statement fails, the complete operation will be rolled back.
-
-**Parameter**:
-- `model`: Table to insert to
-- `columns`: Columns to set `rows` for.
-- `rows`: List of values to bind to the corresponding columns.
-- `transaction`: Optional transaction to execute the query on.
- */
+/// This method is used to bulk insert rows.
+///
+/// If one insert statement fails, the complete operation will be rolled back.
+///
+/// **Parameter**:
+/// - `model`: Table to insert to
+/// - `columns`: Columns to set `rows` for.
+/// - `rows`: List of values to bind to the corresponding columns.
+/// - `transaction`: Optional transaction to execute the query on.
 pub async fn insert_bulk(
     executor: impl Executor<'_>,
     model: &str,
@@ -315,17 +321,15 @@ pub async fn insert_bulk(
     Ok(())
 }
 
-/**
-This method is used to bulk insert rows.
-
-If one insert statement fails, the complete operation will be rolled back.
-
-**Parameter**:
-- `model`: Table to insert to
-- `columns`: Columns to set `rows` for.
-- `rows`: List of values to bind to the corresponding columns.
-- `transaction`: Optional transaction to execute the query on.
- */
+/// This method is used to bulk insert rows.
+///
+/// If one insert statement fails, the complete operation will be rolled back.
+///
+/// **Parameter**:
+/// - `model`: Table to insert to
+/// - `columns`: Columns to set `rows` for.
+/// - `rows`: List of values to bind to the corresponding columns.
+/// - `transaction`: Optional transaction to execute the query on.
 pub async fn insert_bulk_returning(
     executor: impl Executor<'_>,
     model: &str,
@@ -352,17 +356,15 @@ pub async fn insert_bulk_returning(
     Ok(inserted)
 }
 
-/**
-This method is used to delete rows from a table.
-
-**Parameter**:
-- `model`: Name of the model to delete rows from
-- `condition`: Optional condition to apply.
-- `transaction`: Optional transaction to execute the query on.
-
-**Returns** the rows affected of the delete statement. Note that this also includes
-relations, etc.
- */
+/// This method is used to delete rows from a table.
+///
+/// **Parameter**:
+/// - `model`: Name of the model to delete rows from
+/// - `condition`: Optional condition to apply.
+/// - `transaction`: Optional transaction to execute the query on.
+///
+/// **Returns** the rows affected of the delete statement. Note that this also includes
+/// relations, etc.
 pub async fn delete<'post_build>(
     executor: impl Executor<'_>,
     model: &str,
@@ -382,19 +384,17 @@ pub async fn delete<'post_build>(
         .await
 }
 
-/**
-This method is used to update rows in a table.
-
-**Parameter**:
-- `model`: Name of the model to update rows from
-- `updates`: A list of updates. An update is a tuple that consists of a list of columns to
-update as well as the value to set to the columns.
-- `condition`: Optional condition to apply.
-- `transaction`: Optional transaction to execute the query on.
-
-**Returns** the rows affected from the update statement. Note that this also includes
-relations, etc.
- */
+/// This method is used to update rows in a table.
+///
+/// **Parameter**:
+/// - `model`: Name of the model to update rows from
+/// - `updates`: A list of updates. An update is a tuple that consists of a list of columns to
+/// update as well as the value to set to the columns.
+/// - `condition`: Optional condition to apply.
+/// - `transaction`: Optional transaction to execute the query on.
+///
+/// **Returns** the rows affected from the update statement. Note that this also includes
+/// relations, etc.
 pub async fn update<'post_build>(
     executor: impl Executor<'_>,
     model: &str,

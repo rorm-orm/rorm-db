@@ -1,7 +1,6 @@
+use super::{no_sqlx, NotInstantiable};
 use crate::row::{Decode, RowIndex};
 use crate::{Error, Row};
-
-use super::{no_sqlx, NotInstantiable};
 
 pub(crate) type Impl = NotInstantiable;
 

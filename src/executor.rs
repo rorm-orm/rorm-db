@@ -16,39 +16,45 @@ use crate::{internal, Database, Error};
 ///
 /// `type Result<'result> = impl Future<Output = Result<(), Error>>`
 pub struct Nothing;
+
 impl QueryStrategy for Nothing {}
 
 /// [`QueryStrategy`] returning how many rows have been affected by the query
 ///
 /// `type Result<'result> = impl Future<Output = Result<u64, Error>>`
 pub struct AffectedRows;
+
 impl QueryStrategy for AffectedRows {}
 
 /// [`QueryStrategy`] returning a single row
 ///
 /// `type Result<'result> = impl Future<Output = Result<Row, Error>>`
 pub struct One;
+
 impl QueryStrategy for One {}
 
 /// [`QueryStrategy`] returning an optional row
 ///
 /// `type Result<'result> = impl Future<Output = Result<Option<Row>, Error>>`
 pub struct Optional;
+
 impl QueryStrategy for Optional {}
 
 /// [`QueryStrategy`] returning a vector of rows
 ///
 /// `type Result<'result> = impl Future<Output = Result<Vec<Row>, Error>>`
 pub struct All;
+
 impl QueryStrategy for All {}
 
 /// [`QueryStrategy`] returning a stream of rows
 ///
 /// `type Result<'result> = impl Stream<Item = Result<Row, Error>>`
 pub struct Stream;
+
 impl QueryStrategy for Stream {}
 
-/// Define how a query is send to and results retrieved from the database.
+/// Define how a query is sent to and results retrieved from the database.
 ///
 /// This trait is implemented on the following unit structs:
 /// - [`Nothing`] retrieves nothing
@@ -74,8 +80,20 @@ pub trait QueryStrategyResult {
 /// Some kind of database connection which can execute queries
 ///
 /// This trait is implemented by the database connection itself as well as transactions.
+///
+/// # Object Safety
+/// This trait is **not** object safe.
+/// However, there only exist two implementors,
+/// which were combined into the [`DynamicExecutor`] enum.
 pub trait Executor<'executor> {
-    /// Execute a query
+    /// Executes a raw SQL query
+    ///
+    /// The query is executed as prepared statement.
+    /// To bind parameter, use ? as placeholder in SQLite and MySQL
+    /// and $1, $2, $n in Postgres.
+    ///
+    /// The generic `Q` is used to "select" what the database is supposed to respond with.
+    /// See [`QueryStrategy`] for a list of available options.
     ///
     /// ```skipped
     /// db.execute::<All>("SELECT * FROM foo;".to_string(), vec![]);
@@ -93,12 +111,15 @@ pub trait Executor<'executor> {
     /// Get the executor's sql dialect.
     fn dialect(&self) -> DBImpl;
 
+    /// Convenience method to convert into a "`dyn Executor`"
+    fn into_dyn(self) -> DynamicExecutor<'executor>;
+
     /// A future producing a [`TransactionGuard`] returned by [`ensure_transaction`](Executor::ensure_transaction)
     type EnsureTransactionFuture: Future<Output = Result<TransactionGuard<'executor>, Error>> + Send;
 
     /// Ensure a piece of code is run inside a transaction using a [`TransactionGuard`].
     ///
-    /// In generic code an [`Executor`] might and might not be a [`&mut Transaction`].
+    /// In generic code an [`Executor`] might and might not be a `&mut Transaction`.
     /// But sometimes you'd want to ensure your code is run inside a transaction
     /// (for example [bulk inserts](crate::database::insert_bulk)).
     ///
@@ -117,6 +138,7 @@ pub enum DynamicExecutor<'executor> {
     /// Use a transaction
     Transaction(&'executor mut Transaction),
 }
+
 impl<'executor> Executor<'executor> for DynamicExecutor<'executor> {
     fn execute<'data, 'result, Q>(
         self,
@@ -139,6 +161,10 @@ impl<'executor> Executor<'executor> for DynamicExecutor<'executor> {
             DynamicExecutor::Database(db) => db.dialect(),
             DynamicExecutor::Transaction(tr) => tr.dialect(),
         }
+    }
+
+    fn into_dyn(self) -> DynamicExecutor<'executor> {
+        self
     }
 
     type EnsureTransactionFuture = BoxFuture<'executor, Result<TransactionGuard<'executor>, Error>>;

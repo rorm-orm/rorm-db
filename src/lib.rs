@@ -44,8 +44,9 @@ pub mod sql {
     pub use rorm_sql::*;
 }
 
+pub use rorm_declaration::config::DatabaseDriver;
+
 pub use crate::database::{Database, DatabaseConfiguration};
 pub use crate::error::Error;
 pub use crate::executor::Executor;
 pub use crate::row::Row;
-pub use rorm_declaration::config::DatabaseDriver;

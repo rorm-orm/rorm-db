@@ -8,7 +8,7 @@ after another with a way to go back to the start without something changed in th
 database.
 
 Can be obtained using [`Database::start_transaction`](crate::Database::start_transaction).
-*/
+ */
 #[must_use = "A transaction needs to be committed."]
 pub struct Transaction(pub(crate) internal::transaction::Impl);
 

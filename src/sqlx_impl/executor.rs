@@ -8,7 +8,8 @@ use rorm_sql::value::Value;
 use rorm_sql::DBImpl;
 
 use crate::executor::{
-    AffectedRows, All, Executor, Nothing, One, Optional, QueryStrategy, QueryStrategyResult, Stream,
+    AffectedRows, All, DynamicExecutor, Executor, Nothing, One, Optional, QueryStrategy,
+    QueryStrategyResult, Stream,
 };
 use crate::internal::any::{AnyExecutor, AnyPool, AnyQueryResult, AnyRow, AnyTransaction};
 use crate::transaction::{Transaction, TransactionGuard};
@@ -26,6 +27,10 @@ impl<'executor> Executor<'executor> for &'executor mut Transaction {
         Q: QueryStrategy,
     {
         Q::execute(&mut self.0, query, values)
+    }
+
+    fn into_dyn(self) -> DynamicExecutor<'executor> {
+        DynamicExecutor::Transaction(self)
     }
 
     fn dialect(&self) -> DBImpl {
@@ -60,6 +65,10 @@ impl<'executor> Executor<'executor> for &'executor Database {
         Q: QueryStrategy,
     {
         Q::execute(&self.0, query, values)
+    }
+
+    fn into_dyn(self) -> DynamicExecutor<'executor> {
+        DynamicExecutor::Database(self)
     }
 
     fn dialect(&self) -> DBImpl {
@@ -97,6 +106,7 @@ type FetchMany<'a> = BoxStream<'a, Result<AnyEither, sqlx::Error>>;
 
 pub type QueryFuture<T> = QueryWrapper<T>;
 pub type QueryStream<T> = QueryWrapper<T>;
+
 pub use query_wrapper::QueryWrapper;
 
 /// Private module to contain the internals behind a sound api
@@ -165,6 +175,7 @@ where
         self.project_wrapped().poll(cx)
     }
 }
+
 impl<S> stream::Stream for QueryStream<S>
 where
     S: stream::Stream,
@@ -214,6 +225,7 @@ impl QueryStrategyImpl for Nothing {
 impl QueryStrategyResult for AffectedRows {
     type Result<'query> = QueryFuture<BoxFuture<'query, Result<u64, Error>>>;
 }
+
 impl QueryStrategyImpl for AffectedRows {
     fn execute<'query, E>(
         executor: E,
@@ -232,6 +244,7 @@ impl QueryStrategyImpl for AffectedRows {
 impl QueryStrategyResult for One {
     type Result<'query> = QueryFuture<BoxFuture<'query, Result<Row, Error>>>;
 }
+
 impl QueryStrategyImpl for One {
     fn execute<'query, E>(
         executor: E,
@@ -256,6 +269,7 @@ impl QueryStrategyImpl for One {
 impl QueryStrategyResult for Optional {
     type Result<'query> = QueryFuture<BoxFuture<'query, Result<Option<Row>, Error>>>;
 }
+
 impl QueryStrategyImpl for Optional {
     fn execute<'query, E>(
         executor: E,
@@ -285,6 +299,7 @@ static TRY_FILTER_MAP: fn(AnyEither) -> Ready<Result<Option<Row>, sqlx::Error>> 
 impl QueryStrategyResult for All {
     type Result<'query> = QueryFuture<BoxFuture<'query, Result<Vec<Row>, Error>>>;
 }
+
 impl QueryStrategyImpl for All {
     fn execute<'query, E>(
         executor: E,
@@ -312,6 +327,7 @@ impl QueryStrategyResult for Stream {
         >,
     >;
 }
+
 impl QueryStrategyImpl for Stream {
     fn execute<'query, E>(
         executor: E,
