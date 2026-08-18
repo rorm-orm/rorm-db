@@ -6,7 +6,7 @@ use rorm_declaration::config::DatabaseDriver;
 use rorm_sql::conditional;
 use rorm_sql::delete::Delete;
 use rorm_sql::insert::Insert;
-use rorm_sql::join_table::JoinTableData;
+use rorm_sql::join_table::{JoinTableData, JoinTableImpl};
 use rorm_sql::ordering::OrderByEntry;
 #[cfg(feature = "postgres-only")]
 use rorm_sql::select::LockingClause;
@@ -147,17 +147,21 @@ impl Drop for Database {
 ///   (for [`All`] and [`Stream`](crate::executor::Stream))
 ///   or a simple [`u64`] (for [`One`] and [`Optional`](crate::executor::Optional)).
 #[allow(clippy::too_many_arguments)] // TODO: refactor this API, clippy is right
-pub fn query<'exe, 'data, Q: QueryStrategy + GetLimitClause>(
+pub fn query<'exe, 'a, 'b, 'c, 'd, Q: QueryStrategy + GetLimitClause>(
     executor: impl Executor<'exe>,
     model: &str,
-    columns: &[ColumnSelector<'data>],
-    joins: &[JoinTable<'data, 'data>],
-    conditions: Option<&conditional::Condition<'data>>,
+    columns: &[ColumnSelector<'a>],
+    joins: &[JoinTable<'b, 'c>],
+    conditions: Option<&conditional::Condition<'d>>,
     order_by_clause: &[OrderByEntry<'_>],
     limit: Option<Q::LimitOrOffset>,
     distinct: bool,
     #[cfg(feature = "postgres-only")] locking_clause: Option<LockingClause>,
-) -> Q::Result<'exe> {
+) -> Q::Result<'exe>
+where
+    'd: 'b,
+    'd: 'c,
+{
     let columns: Vec<_> = columns
         .iter()
         .map(|c| {
@@ -169,7 +173,7 @@ pub fn query<'exe, 'data, Q: QueryStrategy + GetLimitClause>(
             )
         })
         .collect();
-    let joins: Vec<_> = joins
+    let joins: Vec<JoinTableImpl<'b, 'c>> = joins
         .iter()
         .map(|j| {
             executor.dialect().join_table(
@@ -309,7 +313,7 @@ pub async fn insert_bulk_returning(
 ) -> Result<Vec<Row>, Error> {
     let mut tr = executor.ensure_transaction().await?;
 
-    let mut inserted = Vec::with_capacity(rows.len());
+    let mut inserted = Vec::new();
     for chunk in rows.chunks(25) {
         let mut insert = tr.dialect().insert(model, columns, chunk, Some(returning));
         insert = insert.rollback_transaction();
@@ -368,13 +372,13 @@ pub async fn delete<'post_build>(
 pub async fn update<'post_build>(
     executor: impl Executor<'_>,
     model: &str,
-    updates: &[(&str, Value<'post_build>)],
+    updates: impl IntoIterator<Item = (&str, Value<'post_build>)>,
     condition: Option<&conditional::Condition<'post_build>>,
 ) -> Result<u64, Error> {
     let mut stmt = executor.dialect().update(model);
 
     for (column, value) in updates {
-        stmt = stmt.add_update(column, *value);
+        stmt = stmt.add_update(column, value);
     }
 
     if let Some(cond) = condition {

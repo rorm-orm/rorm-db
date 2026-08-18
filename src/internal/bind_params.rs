@@ -1,4 +1,6 @@
 use rorm_sql::value::{NullType, Value};
+#[cfg(feature = "postgres-only")]
+use sqlx::postgres::PgBindIterExt;
 use sqlx::types::Json;
 
 use super::any::{AnyEncode, AnyQuery, AnyType};
@@ -45,51 +47,51 @@ pub fn bind_param<'exe, 'val>(query: &mut AnyQuery<'exe>, param: Value<'val>) {
         Value::BitVec(x) => query.bind(x),
 
         #[cfg(feature = "postgres-only")]
-        Value::ArrayString(x) => query.bind(x),
+        Value::ArrayString(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayI64(x) => query.bind(x),
+        Value::ArrayI64(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayI32(x) => query.bind(x),
+        Value::ArrayI32(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayI16(x) => query.bind(x),
+        Value::ArrayI16(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayBool(x) => query.bind(x),
+        Value::ArrayBool(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayF32(x) => query.bind(x),
+        Value::ArrayF32(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayF64(x) => query.bind(x),
+        Value::ArrayF64(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayBinary(x) => query.bind(x),
+        Value::ArrayBinary(x) => query.bind(x.iter().map(|x| x.as_ref()).bind_iter()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayChronoNaiveDate(x) => query.bind(x),
+        Value::ArrayChronoNaiveDate(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayChronoNaiveTime(x) => query.bind(x),
+        Value::ArrayChronoNaiveTime(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayChronoNaiveDateTime(x) => query.bind(x),
+        Value::ArrayChronoNaiveDateTime(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayChronoDateTime(x) => query.bind(x),
+        Value::ArrayChronoDateTime(x) => query.bind(x.as_ref()),
 
         #[cfg(feature = "postgres-only")]
-        Value::ArrayTimeDate(x) => query.bind(x),
+        Value::ArrayTimeDate(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayTimeTime(x) => query.bind(x),
+        Value::ArrayTimeTime(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayTimeOffsetDateTime(x) => query.bind(x),
+        Value::ArrayTimeOffsetDateTime(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayTimePrimitiveDateTime(x) => query.bind(x),
+        Value::ArrayTimePrimitiveDateTime(x) => query.bind(x.as_ref()),
 
         #[cfg(feature = "postgres-only")]
-        Value::ArrayUuid(x) => query.bind(x),
+        Value::ArrayUuid(x) => query.bind(x.as_ref()),
 
         #[cfg(feature = "postgres-only")]
-        Value::ArrayJsonValue(x) => query.bind(Json(x)),
+        Value::ArrayJsonValue(x) => query.bind(x.as_ref()),
 
         #[cfg(feature = "postgres-only")]
-        Value::ArrayMacAddress(x) => query.bind(x),
+        Value::ArrayMacAddress(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayIpNetwork(x) => query.bind(x),
+        Value::ArrayIpNetwork(x) => query.bind(x.as_ref()),
         #[cfg(feature = "postgres-only")]
-        Value::ArrayBitVec(x) => query.bind(x),
+        Value::ArrayBitVec(x) => query.bind(x.iter().map(|x| x.as_ref()).bind_iter()),
 
         Value::Null(null_type) => match null_type {
             NullType::String => query.bind(None::<&str>),
@@ -157,7 +159,7 @@ pub fn bind_param<'exe, 'val>(query: &mut AnyQuery<'exe>, param: Value<'val>) {
 
             NullType::MacAddress => query.bind(none(Value::MacAddress).map(vec)),
             NullType::IpNetwork => query.bind(none(Value::IpNetwork).map(vec)),
-            NullType::BitVec => query.bind(none(Value::BitVec).map(vec)),
+            NullType::BitVec => query.bind(none(Value::BitVec).as_deref().map(vec)),
         },
     }
 }
