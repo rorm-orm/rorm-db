@@ -1,3 +1,5 @@
+Integrated into rorm monorepo
+
 # rorm-db
 
 [![license](https://img.shields.io/github/license/rorm-orm/rorm-db?label=License&color=blue)](https://github.com/rorm-orm/rorm-db/blob/dev/LICENSE)
